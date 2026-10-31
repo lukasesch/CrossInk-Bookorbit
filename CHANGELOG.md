@@ -5,6 +5,12 @@ records only its own additions. Each release states the CrossInk version it is b
 on; for everything inherited from upstream, see the
 [CrossInk changelog](https://github.com/uxjulia/CrossInk/blob/main/CHANGELOG.md).
 
+## [Unreleased]
+
+### Added
+
+- Experimental `picco` build for the BOOX Picco. It has not run on a device. It installs into the stock app slot only and has no OTA or SD card update, because the stock partition table has one app slot. See the [installation guide](docs/installation.md#boox-picco).
+
 ## [v1.6.1+bookorbit.4] - 2026-10-30
 
 Based on CrossInk v1.6.1.

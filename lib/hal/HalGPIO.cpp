@@ -329,6 +329,10 @@ bool HalGPIO::verifyPowerButtonWakeup(const bool shortPressWakes, const uint16_t
 
 bool HalGPIO::isPowerButtonPhysicallyPressed() const { return inputMgr.isPowerButtonPhysicallyPressed(); }
 
+void HalGPIO::prepareForDeepSleep() {
+  if (!inputMgr.prepareForDeepSleep()) LOG_ERR("GPIO", "Failed to put touch controller to sleep");
+}
+
 #if FREEINK_MCU_S3
 // USB host presence via the USB-Serial-JTAG peripheral's SOF frame counter: a
 // connected host clocks 1 kHz start-of-frame packets, so the counter advancing
@@ -378,6 +382,21 @@ bool HalGPIO::isUsbConnected() const {
   if (BoardConfig::ACTIVE.usbDetect >= 0) {
     return digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
   }
+#if FREEINK_DEVICE_PICCO
+  // The SGM41562 reports its input rail. An I2C read, so sampled like the charge poll below.
+  static const BatteryMonitor charger;
+  static bool powerSampled = false;
+  static bool powerKnown = false;
+  static bool powerPresent = false;
+  static unsigned long lastPowerSampleMs = 0;
+  if (!powerSampled || millis() - lastPowerSampleMs >= 500) {
+    powerKnown = false;
+    powerPresent = charger.isExternalPowerPresent(&powerKnown);
+    lastPowerSampleMs = millis();
+    powerSampled = true;
+  }
+  if (powerKnown) return powerPresent;
+#endif
 #if FREEINK_MCU_S3
   // Without a VBUS pin, prefer native-USB host traffic, then use charging as a
   // fallback for power-only adapters that do not emit USB frames. Charge

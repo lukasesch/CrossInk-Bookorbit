@@ -20,6 +20,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback, void*, s
 #include "AppVersion.h"
 #include "FirmwareFlasher.h"
 #include "OtaUpdater.h"
+#include "UpdateSlot.h"
 #include "esp_http_client.h"
 #include "esp_ota_ops.h"
 #include "mbedtls/sha256.h"
@@ -427,7 +428,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
 
   processedSize = 0;
 
-  const esp_partition_t* updatePartition = esp_ota_get_next_update_partition(nullptr);
+  const esp_partition_t* updatePartition = updateSlot();
   if (updatePartition == nullptr) {
     LOG_ERR("OTA", "No OTA update partition found");
     return INTERNAL_UPDATE_ERROR;

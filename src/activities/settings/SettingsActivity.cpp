@@ -1234,10 +1234,14 @@ void SettingsActivity::toggleCurrentSetting() {
         startActivityForResult(std::make_unique<ClearCacheActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::CheckForUpdates:
+#if CROSSINK_APP_CAP_SELF_UPDATE
         silentRestartToNetwork(NetworkBootTarget::OTA);
+#endif
         break;
       case SettingAction::SdFirmwareUpdate:
+#if CROSSINK_APP_CAP_SELF_UPDATE
         startActivityForResult(std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInput), resultHandler);
+#endif
         break;
       case SettingAction::DownloadFonts:
         silentRestartToManageFonts();

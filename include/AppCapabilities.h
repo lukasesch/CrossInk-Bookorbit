@@ -27,6 +27,16 @@
 #define CROSSINK_APP_DEVICE_X4CLASSIC 0
 #endif
 
+#if defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO
+#define CROSSINK_APP_DEVICE_PICCO 1
+#else
+#define CROSSINK_APP_DEVICE_PICCO 0
+#endif
+
+// The image can rewrite itself only with a second OTA slot to write into. The
+// Picco's stock table has one, so its OTA and SD update routes do not exist.
+#define CROSSINK_APP_CAP_SELF_UPDATE (!CROSSINK_APP_DEVICE_PICCO)
+
 // Native simulator BoardConfig deliberately has no FREEINK_CAP_TOUCH macro.
 // Firmware builds must keep the app and SDK capability selections in lockstep.
 #if !defined(SIMULATOR)

@@ -1,6 +1,7 @@
 """
 PlatformIO post-build script: fail when firmware.bin does not fit in the
-smallest app partition from partitions.csv.
+smallest OTA app partition of the env's table; with no OTA partition, the smallest
+app partition. A factory recovery slot does not limit the image.
 """
 
 import csv
@@ -43,8 +44,7 @@ def _get_partition_file(project_dir, env):
 
 
 def _get_app_partition_limit(partition_file):
-    app_sizes = []
-    app_labels = []
+    app_partitions = []
 
     with open(partition_file, newline='', encoding='utf-8') as fp:
         for row in csv.reader(fp):
@@ -55,17 +55,17 @@ def _get_app_partition_limit(partition_file):
             if not row[0] or row[0].startswith('#') or len(row) < 5:
                 continue
 
-            name, partition_type, _subtype, _offset, size = row[:5]
+            name, partition_type, subtype, _offset, size = row[:5]
             if partition_type != 'app':
                 continue
 
-            app_labels.append(name)
-            app_sizes.append(_parse_size(size))
+            app_partitions.append((name, subtype, _parse_size(size)))
 
-    if not app_sizes:
+    if not app_partitions:
         return None, None
 
-    return min(app_sizes), ', '.join(app_labels)
+    candidates = [p for p in app_partitions if p[1].startswith('ota_')] or app_partitions
+    return min(p[2] for p in candidates), ', '.join(p[0] for p in candidates)
 
 
 def check_firmware_size(source, target, env):

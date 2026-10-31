@@ -2,7 +2,7 @@
 
 Everything else — fonts, themes, reader features, reading stats, controls, the web server — comes from CrossInk unchanged, with one exception: KOReader Sync is removed to make room (see below). See the [upstream README](https://github.com/uxjulia/CrossInk#readme) for those, and the [docs](./docs/) folder in this repository for the detailed guides.
 
-**Note**: this fork publishes releases for the Xteink X3, X4, X4 Pro and X4 Classic, and the Seeed reTerminal Sticky.
+**Note**: this fork publishes releases for the Xteink X3, X4, X4 Pro and X4 Classic, and the Seeed reTerminal Sticky. An experimental `picco` build for the BOOX Picco can be built from source; it has no release and has not run on a device (see [installation](./docs/installation.md#boox-picco)).
 
 ---
 

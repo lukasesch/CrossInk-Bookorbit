@@ -11,6 +11,7 @@ nav_order: 2
 - Xteink X4 Pro
 - Xteink X4 Classic
 - Seeed Studio Sticky
+- BOOX Picco: experimental build, see [BOOX Picco](#boox-picco). There is no release file yet.
 
 ## Firmware Files
 
@@ -56,6 +57,28 @@ books and reading progress live on the SD card and survive the swap in both dire
 Highlights and bookmarks stay stored too, but upstream does not read the content-keyed
 files this fork keeps them in, so they are invisible there — everything returns when the
 fork is flashed back.
+
+## BOOX Picco
+
+This build has not run on a device. It builds and is meant for testing, and it comes with no
+promise that it works. Flashing it may void your warranty, and you do so at your own risk.
+
+Build it with `pio run -e picco`, which writes `.pio/build/picco/firmware-picco.bin`.
+
+The Picco keeps its vendor bootloader, partition table and `safeboot` recovery partition. The
+firmware goes only into the stock `app` slot at `0xE0000`. Install it with one of these:
+
+- the Boox flasher's OTA mode
+- the [CrossPoint flash tools](https://crosspointreader.com/#flash-tools)
+
+Rules for this device:
+
+- Never use the esptool command below, or any write at `0x10000`. On the Picco that address is
+  inside the `safeboot` partition.
+- The `erase`, `erase_upload`, `uploadfs` and `uploadfsota` PlatformIO targets are blocked for
+  this build because they would destroy the stock layout. Do not work around that.
+- There is no OTA or SD card update. The stock table has one app slot, so the firmware could only
+  overwrite itself. `Check for Updates` and `SD Card Firmware Update` are hidden.
 
 ## Command Line
 

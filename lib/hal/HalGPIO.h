@@ -146,6 +146,7 @@ class HalGPIO {
   // edge tracking. It only reads a GPIO register, so a task other than the main
   // loop may poll it. False on boards without a power-button GPIO.
   bool isPowerButtonPhysicallyPressed() const;
+  void prepareForDeepSleep();
 
   // Check if USB is connected
   bool isUsbConnected() const;

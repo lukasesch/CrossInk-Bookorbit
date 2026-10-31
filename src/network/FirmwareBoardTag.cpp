@@ -31,6 +31,8 @@
 #define CROSSINK_BOARD_NAME "delink"
 #elif FREEINK_DEVICE_PAPERS3
 #define CROSSINK_BOARD_NAME "papers3"
+#elif FREEINK_DEVICE_PICCO
+#define CROSSINK_BOARD_NAME "picco"
 #else
 #error "FirmwareBoardTag: no FREEINK_DEVICE_* flag set; cannot derive board name"
 #endif

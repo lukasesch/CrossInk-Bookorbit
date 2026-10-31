@@ -1249,6 +1249,10 @@ void mirrorWakeShortPressToNvs() {
 // Everything that follows the sleep screen and the files written for it. Shared by an
 // ordinary sleep and by the one the BookOrbit sleep sync postponed.
 static void powerDownForDeepSleep() {
+#if CROSSINK_APP_DEVICE_PICCO
+  // The I2C LED driver keeps its state through deep sleep; SETTINGS keeps the preference.
+  Frontlight.setOn(false);
+#endif
   // Last chance to sample: startDeepSleep() cuts the SD rail on X3, so nothing
   // can be written again until the next wake.
   BatteryDiagnosticLog::record(BatteryDiagnosticLog::Event::Sleep, BoardConfig::ACTIVE.name);
@@ -1580,8 +1584,10 @@ void setup() {
   const bool shortPressWakes = readWakeShortPressFromNvs();
   const bool keepLatchInSleep = readWakeKeepLatchFromNvs();
   // The sleep sync's watcher has already judged a sleep-sync wake's press.
+  // Picco: plugging in USB pulses the wake line; power on, as stock does.
   if (wakeupReason == HalGPIO::WakeupReason::PowerButton && !isSleepSyncWake &&
-      !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS)) {
+      !gpio.verifyPowerButtonWakeup(shortPressWakes, CrossPointSettings::POWER_BUTTON_LONG_PRESS_MS) &&
+      !(CROSSINK_APP_DEVICE_PICCO && gpio.isUsbConnected())) {
     LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
     powerManager.startDeepSleep(gpio, keepLatchInSleep);
   }
@@ -1594,8 +1600,9 @@ void setup() {
   const auto recoveryButton = (BoardConfig::isX4Pro() || CROSSINK_APP_DEVICE_X4CLASSIC)
                                   ? MappedInputManager::Button::Down
                                   : MappedInputManager::Button::Up;
-  const bool recoveryFirmwareMode = wakeupReason == HalGPIO::WakeupReason::PowerButton && !BoardConfig::isPaperMono() &&
-                                    mappedInputManager.isPressed(recoveryButton);
+  const bool recoveryFirmwareMode = CROSSINK_APP_CAP_SELF_UPDATE &&
+                                    wakeupReason == HalGPIO::WakeupReason::PowerButton &&
+                                    !BoardConfig::isPaperMono() && mappedInputManager.isPressed(recoveryButton);
 #else
   const bool recoveryFirmwareMode = false;
 #endif
@@ -1829,6 +1836,7 @@ void setup() {
     bool launched = false;
     switch (static_cast<NetworkBootTarget>(snapshotTarget)) {
       case NetworkBootTarget::OTA: {
+#if CROSSINK_APP_CAP_SELF_UPDATE
         auto otaActivity = makeUniqueNoThrow<OtaUpdateActivity>(renderer, mappedInputManager);
         if (otaActivity) {
           activityManager.replaceActivity(std::move(otaActivity));
@@ -1837,6 +1845,9 @@ void setup() {
           LOG_ERR("MAIN", "OOM: OTA activity after minimal boot (free=%u maxAlloc=%u)", ESP.getFreeHeap(),
                   ESP.getMaxAllocHeap());
         }
+#else
+        LOG_ERR("MAIN", "OTA boot target ignored: this board cannot update itself");
+#endif
         break;
       }
       case NetworkBootTarget::OPDS:

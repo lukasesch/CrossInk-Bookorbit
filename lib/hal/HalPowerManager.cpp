@@ -11,6 +11,10 @@
 
 #include "HalGPIO.h"
 
+#if FREEINK_DEVICE_PICCO
+#include <HalFrontlight.h>
+#endif
+
 HalPowerManager powerManager;  // Singleton instance
 
 namespace {
@@ -37,6 +41,10 @@ void HalPowerManager::begin() {
   if (BoardConfig::ACTIVE.batteryAdc >= 0) {
     pinMode(BoardConfig::ACTIVE.batteryAdc, INPUT);
   }
+#if FREEINK_DEVICE_PICCO
+  // Stock SGM41562 charge voltage and limits.
+  if (BatteryMonitor::configureCharger()) LOG_INF("PWR", "Charger configured");
+#endif
   normalFreq = getCpuFrequencyMhz();
   modeMutex = xSemaphoreCreateMutex();
   assert(modeMutex != nullptr);
@@ -106,6 +114,11 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 }
 
 void HalPowerManager::startDeepSleep(HalGPIO& gpio, const bool keepPowerLatched) const {
+#if FREEINK_DEVICE_PICCO
+  // The frontlight driver and touch share I2C; light off first, then sleep the TMA525C.
+  Frontlight.setOn(false);
+  gpio.prepareForDeepSleep();
+#endif
   // Once started, let the SDK exit configuration mode and seal the gauge.
   // Sleep runs on the main task after rendering has stopped. The SDK bounds
   // every wait; ordinary sleep has no delay once the startup check is done.
