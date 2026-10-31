@@ -788,6 +788,8 @@ const EpdGlyph* HalScalableFont::glyph(void* ctx, uint32_t cp) {
   auto& s = *static_cast<Size*>(ctx);
   s.owner->fontDataFailure_ = false;
   const auto ligatureGlyph = cp >= 0xfb00 && cp <= 0xfb04 ? s.owner->ligatureGlyphs_[cp - 0xfb00] : 0;
+  // FtFont measures a missing codepoint as .notdef; nullptr is what reaches the fallback chain.
+  if (!ligatureGlyph && !s.owner->font_.hasGlyph(cp)) return nullptr;
   auto& g = s.glyphs[s.cursor++ % 32];
   if (!runtime().glyphMetrics(s.owner->font_, s.owner->cacheId_, ligatureGlyph ? GlyphIdMarker | ligatureGlyph : cp,
                               s.points, g)) {
