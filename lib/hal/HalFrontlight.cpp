@@ -4,9 +4,14 @@
 
 HalFrontlight HalFrontlight::instance;
 
-void HalFrontlight::begin(const uint8_t brightness, const uint8_t warmth, const bool on) {
-  // begin() runs the I2C probe that decides present() on the Picco, so it must come first.
+void HalFrontlight::probe() {
+  if (probed) return;
+  probed = true;
   manager.begin();
+}
+
+void HalFrontlight::begin(const uint8_t brightness, const uint8_t warmth, const bool on) {
+  probe();
   if (!manager.present()) {
     return;
   }

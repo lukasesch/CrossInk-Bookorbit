@@ -10,6 +10,9 @@ class HalFrontlight {
  public:
   static HalFrontlight& getInstance() { return instance; }
 
+  // Detects the light without lighting it, so present() is right before the
+  // settings load: an I2C driver (Picco) answers only to this probe.
+  void probe();
   // Bring up the PWM channel(s) and apply the given persisted state.
   void begin(uint8_t brightness, uint8_t warmth, bool on);
 
@@ -35,6 +38,7 @@ class HalFrontlight {
   // the on/off state separate so toggling restores the previous level.
   uint8_t lastBrightness = 60;
   bool lit = false;
+  bool probed = false;
 
   static HalFrontlight instance;
 };
