@@ -88,6 +88,7 @@ class ActivityManager {
   // Set when an overlay is closed specifically to hand control back to the
   // reader's menu. It must wait until the reader is current again.
   int16_t pendingReaderMenuAction = -1;
+  std::string bookOrbitAutoSyncPath;
   // Target reader retained underneath nested screens while Home/Reader cancels
   // each child through the ordinary activity-result path.
   Activity* pendingHomeReaderTarget = nullptr;
@@ -161,6 +162,11 @@ class ActivityManager {
   void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false,
                   bool cleanImageBaseOnEntry = false);
   void goToReaderAndRunMenuAction(std::string path, uint8_t action);
+  // A book the user chose to open: goToReader() plus a one-shot arm its EPUB reader
+  // consumes to decide on the BookOrbit auto-sync of a fresh catalog download. Readers
+  // reached any other way (silent restarts, sync returns) never auto-sync.
+  void openBook(std::string path);
+  bool consumeBookOrbitAutoSyncArm(const std::string& path);
   // recordForRedraw: the BookOrbit sleep sync follows and draws the sleep screen again
   // (see SleepScreenPass).
   void goToSleep(bool fromTimeout = false, bool recordForRedraw = false);

@@ -4,6 +4,8 @@
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 
+#include <string>
+
 #include "CrossPointSettings.h"
 #include "util/QuickLockTrigger.h"
 
@@ -70,3 +72,8 @@ bool startGlobalSyncProgress(bool networkBootReady = false,
 // This fork's provider. The payload is the BOOKORBIT_SYNC restart payload
 // (paragraph anchor); callers outside the restart flow leave it at 0.
 bool startGlobalBookOrbitSync(bool networkBootReady = false, uint32_t payload = 0, bool sleepSync = false);
+// Called by the EPUB reader on a user's open of a book at its start. Restarts into the
+// BookOrbit auto-sync when the book is a catalog download this device never synced, an
+// account and a saved network exist, and the battery allows it (same gate as the sleep
+// sync). Returns without doing anything otherwise.
+void startBookOrbitAutoSyncIfDue(const std::string& epubPath, uint8_t readerOrientation);

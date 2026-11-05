@@ -67,13 +67,21 @@ The option matching the furthest-read position is preselected. If the server has
 - If your local position is further ahead _and_ the server has not moved since this device last synced, your position is uploaded — the screen flashes "Upload successful" and returns on its own.
 - Equal positions just say "Already synced" and return.
 
-Anything else still shows the choice screen: the first sync of a book on a device, a server that reports no dates, and above all a genuine conflict — both sides having moved since your last sync, which is exactly the case a human should arbitrate.
+- A book never synced on this device and still at its start (its first page, or where the book's text begins) takes the server position: there is nothing on the device it could overwrite.
+
+Anything else still shows the choice screen: the first sync of a book you already read in on this device, a server that reports no dates, and above all a genuine conflict — both sides having moved since your last sync, which is exactly the case a human should arbitrate.
 
 A newer date on the server is not enough to say it has moved, because BookOrbit's web reader saves the position a book opens at: opening the book there and closing it gives the server's position a new date without anyone having read a page. What the web reader saves is the start of its own page, so a server position found in the chapter your device last synced in, at or before the page it synced, counts as not having moved, and your further position is still uploaded. A server position further on means someone read elsewhere. One in an earlier chapter means someone went back on purpose, which is also how BookOrbit hands out a progress reset, and it is never overwritten without asking.
 
 Each device remembers its last sync of each book (the server's date and the position both sides were left at) in a small file next to the book's cache, and every sync updates it whichever mode is active, so the history smart sync relies on is already in place when you enable it. A book last synced with v1.6.1+bookorbit.1 or earlier has the date only, and goes by it until its next sync settles the progress.
 
 BookOrbit identifies books by the binary partial-MD5 hash of the EPUB file (the same "Binary" matching KOReader offers), so the **same EPUB file** has to be present on both readers for positions to pair up. A book downloaded from your BookOrbit catalog is the exact file your server knows about, so it matches automatically.
+
+### Syncing on the first open of a catalog download
+
+A book downloaded from your BookOrbit catalog syncs on its own the first time you open it, whatever **Sync Behavior** says. The device restarts, joins a saved Wi-Fi network (the last one used first, then any other saved network in range), syncs progress, highlights and bookmarks, and opens the book at the server's position. This needs a configured account and a saved Wi-Fi network, and it is skipped when the battery is below 10% with no charger connected.
+
+Nothing ever keeps you from reading: with no Wi-Fi in range, the server unreachable or no progress on the server yet, the book opens at its start, and the next time you open it the sync is tried again. That stops once a sync of the book has completed (this one, a manual one or a sleep sync) or once you have turned a page.
 
 ### Syncing without opening the menu
 
@@ -84,7 +92,7 @@ BookOrbit identifies books by the binary partial-MD5 hash of the EPUB file (the 
 Turn on **Settings → System → BookOrbit Sync → Sync on Sleep** and the device syncs the book you last had open every time it goes to sleep, whether from the power button, the sleep timer or a Quick Lock timeout. The sleep screen goes up first. The device then joins a saved Wi-Fi network (the last one used first, then any other saved network in range), runs a full sync behind that screen, draws the sleep screen again and finishes going to sleep. Nothing else is shown. The second refresh is there because the sleep screen loses some contrast while the sync runs behind it; a Quick Resume screen comes back in plain black and white, without the smoothed text the reader draws.
 
 - **Waking the device cancels the sync.** Press Power the way you would to wake it. The sync stops at its next step and the device wakes as usual. Whatever the sync had already sent is kept, and the rest follows on the next sync.
-- **Progress follows the Smart sync rules**, whatever **Sync Behavior** says, because nobody is there to answer the choice screen. When those rules cannot decide (the first sync of a book on this device, or both sides having moved), progress is left alone for your next manual sync. Highlights, bookmarks and reading sessions sync either way.
+- **Progress follows the Smart sync rules**, whatever **Sync Behavior** says, because nobody is there to answer the choice screen. When those rules cannot decide (the first sync of a book already read on this device, or both sides having moved), progress is left alone for your next manual sync. Highlights, bookmarks and reading sessions sync either way.
 - **It is skipped** when no book is open, when no Wi-Fi network is saved, and when the battery is below 10% with no charger connected.
 
 Each sync keeps Wi-Fi on for a few seconds, and longer when no saved network answers, so the option is off by default.

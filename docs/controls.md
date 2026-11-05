@@ -266,6 +266,15 @@ While the switch owns a function, nothing else changes it behind the switch:
   dark mode button and the Dark Mode shortcuts do nothing.
 - Touch Reader Controls: the setting is hidden from the web settings.
 
+### Frontlight Panel in the Reader
+
+On the BOOX Picco, a downward swipe that starts at the top edge of the page
+opens the frontlight panel while reading: brightness, warmth, dark mode and
+BookOrbit Sync. A downward swipe that starts anywhere else still opens the
+reader menu. Outside the reader, the top edge keeps its usual action, and
+the panel is reached from **Settings > Display > Frontlight > Brightness &
+Warmth**.
+
 ## Footnote Shortcut
 
 When a shortcut is mapped to **Footnotes**, it opens the page-reference selector

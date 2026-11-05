@@ -35,6 +35,10 @@ constexpr uint32_t BOOKORBIT_SYNC_PAYLOAD_HAS_PARAGRAPH = 1u << 16;
 // (Mirrors the KOReader sync orientation payload.)
 constexpr uint32_t BOOKORBIT_SYNC_PAYLOAD_ORIENTATION_SHIFT = 17u;
 constexpr uint32_t BOOKORBIT_SYNC_PAYLOAD_ORIENTATION_MASK = 0x7u << BOOKORBIT_SYNC_PAYLOAD_ORIENTATION_SHIFT;
+// Bit 20: the sync a reader ordered on the first open of a BookOrbit catalog download
+// (see startBookOrbitAutoSyncIfDue()). It joins a saved network without UI and returns
+// to the book on every outcome.
+constexpr uint32_t BOOKORBIT_SYNC_PAYLOAD_AUTO = 1u << 20;
 // BOOKORBIT_SLEEP_SYNC payload: Power was still held when the device went to sleep (a
 // long-press sleep), so that press belongs to the sleep gesture and must be released
 // before a press can wake the device out of the sync.

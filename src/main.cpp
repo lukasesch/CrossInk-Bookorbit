@@ -86,6 +86,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 
 #include "AppVersion.h"
 #include "BookOrbitCredentialStore.h"
+#include "BookOrbitDownloadIndex.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "GlobalActions.h"
@@ -559,6 +560,7 @@ bool startGlobalSyncProgress(const bool networkBootReady, const uint8_t readerOr
 // restart. The payload is the BOOKORBIT_SYNC restart payload. sleepSync starts the
 // sync that runs behind the sleep screen; it always comes from its own network boot.
 bool startGlobalBookOrbitSync(const bool networkBootReady, const uint32_t payload, const bool sleepSync) {
+  const bool autoSync = networkBootReady && (payload & BOOKORBIT_SYNC_PAYLOAD_AUTO) != 0;
   if (!BOOKORBIT_STORE.hasCredentials()) {
     if (networkBootReady) return false;
     activityManager.pushActivity(std::make_unique<BookOrbitSettingsActivity>(renderer, mappedInputManager));
@@ -584,7 +586,7 @@ bool startGlobalBookOrbitSync(const bool networkBootReady, const uint32_t payloa
   auto epub = std::make_shared<Epub>(epubPath, "/.crosspoint");
   if (!epub->load(true, SETTINGS.embeddedStyle == 0)) {
     LOG_ERR("MAIN", "Failed to load EPUB for global BookOrbit sync: %s", epubPath.c_str());
-    if (sleepSync) return false;
+    if (sleepSync || autoSync) return false;
     activityManager.pushActivity(std::make_unique<BookOrbitSettingsActivity>(renderer, mappedInputManager));
     return true;
   }
@@ -632,7 +634,7 @@ bool startGlobalBookOrbitSync(const bool networkBootReady, const uint32_t payloa
 
   auto syncActivity = makeUniqueNoThrow<BookOrbitSyncActivity>(
       renderer, mappedInputManager, epubPath, spineIndex, pageNumber, totalPagesInSpine, std::move(localKoPos),
-      std::move(localChapterName), paragraphIndex, networkBootReady, readerOrientation, sleepSync);
+      std::move(localChapterName), paragraphIndex, networkBootReady, readerOrientation, sleepSync, autoSync);
   if (!syncActivity) {
     LOG_ERR("MAIN", "OOM: BookOrbit sync activity (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     return false;
@@ -1345,6 +1347,31 @@ static bool shouldSyncBookOrbitBeforeSleep() {
   return true;
 }
 
+void startBookOrbitAutoSyncIfDue(const std::string& epubPath, const uint8_t readerOrientation) {
+  if (!FsHelpers::hasEpubExtension(epubPath) || !BOOKORBIT_STORE.hasCredentials()) return;
+  const bool catalogDownload = BookOrbitDownloadIndex::hasPath(epubPath);
+  BookOrbitDownloadIndex::unload();
+  if (!catalogDownload || BookOrbitSyncActivity::hasSyncHistory(epubPath)) return;
+  if (WIFI_STORE.getCredentialCount() == 0) {
+    LOG_INF("BookOrbit", "Auto-sync skipped: no saved Wi-Fi network");
+    return;
+  }
+  const uint16_t battery = powerManager.getBatteryPercentage();
+  if (battery < SLEEP_SYNC_MIN_BATTERY_PERCENT && !gpio.isUsbConnected()) {
+    LOG_INF("BookOrbit", "Auto-sync skipped: battery at %u%%", static_cast<unsigned>(battery));
+    return;
+  }
+  LOG_INF("BookOrbit", "Auto-sync on first open of catalog download %s", epubPath.c_str());
+  // The network boot and the return after it both open APP_STATE.openEpubPath.
+  APP_STATE.openEpubPath = epubPath;
+  APP_STATE.saveToFile();
+  const uint32_t orientationPayload = readerOrientation < CrossPointSettings::ORIENTATION_COUNT
+                                          ? (static_cast<uint32_t>(readerOrientation) + 1)
+                                                << BOOKORBIT_SYNC_PAYLOAD_ORIENTATION_SHIFT
+                                          : 0;
+  silentRestartToNetwork(NetworkBootTarget::BOOKORBIT_SYNC, BOOKORBIT_SYNC_PAYLOAD_AUTO | orientationPayload);
+}
+
 // Hands the rest of this sleep to a minimal network boot: the session that is ending
 // fragmented the heap, and Wi-Fi plus TLS need what a fresh boot leaves (see
 // silentRestartToNetwork()). Unlike the other network restarts it draws no popup, so
@@ -1665,6 +1692,8 @@ void setup() {
 
   halTiltSensor.begin();
   halClock.begin();
+  // Before SETTINGS.loadFromFile(): it drops light actions while present() is false.
+  Frontlight.probe();
 
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
@@ -1919,6 +1948,10 @@ void setup() {
         break;
       case NetworkBootTarget::BOOKORBIT_SYNC:
         launched = startGlobalBookOrbitSync(true, snapshotPayload);
+        if (!launched && (snapshotPayload & BOOKORBIT_SYNC_PAYLOAD_AUTO) != 0) {
+          LOG_INF("MAIN", "BookOrbit auto-sync could not start; opening the book");
+          silentRestartToReader();
+        }
         break;
       case NetworkBootTarget::BOOKORBIT_SLEEP_SYNC:
         launched = startBookOrbitSleepSync(snapshotPayload);

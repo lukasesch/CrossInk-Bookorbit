@@ -240,6 +240,17 @@ TEST(FrontlightPanelModel, TouchDrawerSupportsFrontlightOrReaderDetails) {
   EXPECT_FALSE(supportsFrontlightDrawer(false, false, true));
 }
 
+TEST(FrontlightPanelModel, ReaderTopEdgeOpensTheLightPanelOnlyOnLitTouchBoardsWithoutHomeKey) {
+  // touch, home key, frontlight, Sticky scheme
+  EXPECT_TRUE(readerTopEdgeOpensLightPanel(true, false, true, false));     // Picco
+  EXPECT_FALSE(readerTopEdgeOpensLightPanel(true, true, true, false));     // X4 Pro: any down-swipe already
+  EXPECT_FALSE(readerTopEdgeOpensLightPanel(true, false, false, true));    // Sticky
+  EXPECT_FALSE(readerTopEdgeOpensLightPanel(true, false, true, true));     // Sticky scheme wins over a light
+  EXPECT_FALSE(readerTopEdgeOpensLightPanel(true, false, false, false));   // touch, no light
+  EXPECT_FALSE(readerTopEdgeOpensLightPanel(false, false, true, false));   // buttons only
+  EXPECT_FALSE(readerTopEdgeOpensLightPanel(false, false, false, false));  // X3/X4
+}
+
 TEST(ReaderDrawerModel, PercentStepsDoNotBecomeSettingsChanges) {
   EXPECT_TRUE(readerDrawerStepChangesSettings(ReaderDrawerPane::Spacing));
   EXPECT_TRUE(readerDrawerStepChangesSettings(ReaderDrawerPane::Margins));

@@ -34,7 +34,7 @@ class BookOrbitSyncActivity final : public Activity {
                                  KOReaderPosition localKoPos, std::string localChapterName,
                                  std::optional<uint16_t> currentParagraphIndex = std::nullopt, bool networkBoot = false,
                                  uint8_t readerOrientation = CrossPointSettings::ORIENTATION_COUNT,
-                                 bool sleepSync = false)
+                                 bool sleepSync = false, bool autoSync = false)
       : Activity("BookOrbitSync", renderer, mappedInput),
         epubPath(epubPath),
         currentSpineIndex(currentSpineIndex),
@@ -45,6 +45,7 @@ class BookOrbitSyncActivity final : public Activity {
         networkBoot(networkBoot),
         readerOrientation(readerOrientation),
         sleepSync(sleepSync),
+        autoSync(autoSync),
         remoteProgress{},
         remotePosition{},
         localProgress(std::move(localKoPos)) {}
@@ -58,6 +59,9 @@ class BookOrbitSyncActivity final : public Activity {
   bool allowPowerAsConfirmInReaderMode() const override { return true; }
   // No gesture may act on a device the user sees asleep.
   bool blocksGlobalInput() const override { return sleepSync; }
+
+  // True once this device completed a sync of the book (its smart-sync marker exists).
+  static bool hasSyncHistory(const std::string& epubPath);
 
  private:
   enum State {
@@ -98,6 +102,14 @@ class BookOrbitSyncActivity final : public Activity {
   void runSleepSync();
   // True once the sync has been abandoned for a wake press; the device is rebooting.
   bool stopIfWoken();
+
+  // The sync a reader ordered on the first open of a catalog download
+  // (BOOKORBIT_SYNC_PAYLOAD_AUTO). Joins a saved network without UI from the first loop(),
+  // takes the server position under smart sync's rules, and goes back to the book on every
+  // outcome: a failure or a server without progress only logs, and the next open retries.
+  bool autoSync = false;
+  bool autoSyncStarted = false;
+  void runAutoSync();
 
   State state = WIFI_SELECTION;
   std::string statusMessage;

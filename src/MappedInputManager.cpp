@@ -15,6 +15,11 @@
 #include "components/TouchRegistry.h"
 #endif
 #include "components/UITheme.h"
+#if CROSSINK_APP_CAP_TOUCH
+#include <CrossInkHalFrontlight.h>
+
+#include "activities/util/FrontlightPanelModel.h"
+#endif
 #ifdef SIMULATOR
 #include "simulator/SimulatorHomeKeyInput.h"
 #endif
@@ -779,8 +784,19 @@ bool MappedInputManager::wasReaderMenuGesture() const {
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
   return direction == SwipeDir::Up;
 #else
-  return hasHomeKeyHardware() ? direction == SwipeDir::Up : direction == SwipeDir::Down;
+  if (hasHomeKeyHardware()) return direction == SwipeDir::Up;
+  return direction == SwipeDir::Down && !wasReaderTopEdgeLightPanelGesture();
 #endif
+}
+
+bool MappedInputManager::wasReaderTopEdgeLightPanelGesture() const {
+#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
+  constexpr bool stickyScheme = true;
+#else
+  constexpr bool stickyScheme = false;
+#endif
+  return readerTopEdgeOpensLightPanel(hasTouchHardware(), hasHomeKeyHardware(), Frontlight.present(), stickyScheme) &&
+         wasTopEdgeDownSwipe();
 }
 
 bool MappedInputManager::wasReaderHomeGesture() const {
@@ -803,7 +819,7 @@ bool MappedInputManager::wasReaderLightPanelGesture() const {
 #if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
   return wasSwipe() == SwipeDir::Down;
 #else
-  return hasHomeKeyHardware() && wasSwipe() == SwipeDir::Down;
+  return hasHomeKeyHardware() ? wasSwipe() == SwipeDir::Down : wasReaderTopEdgeLightPanelGesture();
 #endif
 }
 

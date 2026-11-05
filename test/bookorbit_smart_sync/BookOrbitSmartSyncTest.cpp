@@ -10,6 +10,7 @@
 
 namespace {
 
+using BookOrbitSmartSync::atBookStart;
 using BookOrbitSmartSync::decide;
 using BookOrbitSmartSync::Decision;
 using BookOrbitSmartSync::makeMarker;
@@ -40,6 +41,31 @@ TEST(BookOrbitSmartSync, PositionsWithinAPageAreAlreadySynced) {
 TEST(BookOrbitSmartSync, AsksWithoutHistoryOrServerDates) {
   EXPECT_EQ(decide({5, 12, 30}, {3, 0, 20}, kLater, Marker{}), Decision::AskNoHistory);
   EXPECT_EQ(decide({5, 12, 30}, {3, 0, 20}, 0, makeMarker(kLastSync, {3, 0, 20})), Decision::AskNoHistory);
+}
+
+// A catalog download opened for the first time: nothing here to lose, so the server's
+// position is taken without asking.
+TEST(BookOrbitSmartSync, AppliesOverABookNeverSyncedNorReadHere) {
+  EXPECT_EQ(decide({0, 0, 1}, {7, 4, 20}, kLater, Marker{}, true), Decision::ApplyRemote);
+  EXPECT_EQ(decide({2, 0, 12}, {7, 4, 20}, kLater, Marker{}, true), Decision::ApplyRemote);
+  // A server without dates has a position all the same.
+  EXPECT_EQ(decide({0, 0, 1}, {7, 4, 20}, 0, Marker{}, true), Decision::ApplyRemote);
+  // Both at the start is still no change.
+  EXPECT_EQ(decide({0, 0, 1}, {0, 0, 1}, kLater, Marker{}, true), Decision::AlreadySynced);
+  // Read here, or synced before: the existing rules decide.
+  EXPECT_EQ(decide({5, 12, 30}, {7, 4, 20}, kLater, Marker{}, false), Decision::AskNoHistory);
+  // A device sent back to the start after a sync is a person's call.
+  EXPECT_EQ(decide({0, 0, 1}, {7, 4, 20}, kLastSync, makeMarker(kLastSync, {7, 4, 20}), true), Decision::AskConflict);
+}
+
+TEST(BookOrbitSmartSync, TheBookStartIsTheFirstPageUpToTheTextStart) {
+  EXPECT_TRUE(atBookStart({0, 0, 1}, 0));
+  EXPECT_TRUE(atBookStart({0, 0, 10}, 3));
+  EXPECT_TRUE(atBookStart({3, 0, 10}, 3));
+  EXPECT_FALSE(atBookStart({0, 1, 10}, 0));
+  EXPECT_FALSE(atBookStart({3, 2, 10}, 3));
+  EXPECT_FALSE(atBookStart({4, 0, 10}, 3));
+  EXPECT_FALSE(atBookStart({1, 0, 10}, 0));
 }
 
 TEST(BookOrbitSmartSync, UploadsWhenOnlyThisDeviceReadOn) {

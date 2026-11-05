@@ -256,6 +256,10 @@ void endSimulatorScenarioIfRequested(const int state) {
 #endif
 }  // namespace
 
+bool BookOrbitSyncActivity::hasSyncHistory(const std::string& epubPath) {
+  return readSyncMarker(BookContentId::bookStateDir(epubPath)).timestamp > 0;
+}
+
 void BookOrbitSyncActivity::ensureEpubLoaded() {
   if (!epub) {
     LOG_DBG("BookOrbit", "Loading epub for progress mapping (heap: %u)", (unsigned)ESP.getFreeHeap());
@@ -348,6 +352,15 @@ void BookOrbitSyncActivity::runSleepSync() {
   endSimulatorScenarioIfRequested(static_cast<int>(state));
 #endif
   completeSleepAfterSleepSync();
+}
+
+void BookOrbitSyncActivity::runAutoSync() {
+  if (SavedWifiConnect::connect([] { return false; })) {
+    onWifiSelectionComplete(true);
+  } else {
+    LOG_INF("BookOrbit", "Auto-sync skipped: no saved network answered; opening the book at its start");
+    returnToReader();
+  }
 }
 
 bool BookOrbitSyncActivity::stopIfWoken() {
@@ -540,6 +553,13 @@ void BookOrbitSyncActivity::performSync() {
   }
 
   if (result == BookOrbitSyncClient::NOT_FOUND) {
+    if (autoSync) {
+      // Nothing to take, and uploading the start would end the retries on later opens.
+      LOG_INF("BookOrbit", "Auto-sync: no server progress; opening the book at its start");
+      syncSession.reset();
+      returnToReader();
+      return;
+    }
     if (smartSyncEnabled() || sleepSync) {
       LOG_DBG("BookOrbit", "Smart sync: no remote progress, uploading local %.6f", localProgress.percentage);
       performUpload();
@@ -640,16 +660,17 @@ void BookOrbitSyncActivity::performSync() {
   const BookOrbitSmartSync::Position remote{remotePosition.spineIndex, remotePosition.pageNumber,
                                             remotePosition.totalPages};
 
-  if (smartSyncEnabled() || sleepSync) {
+  if (smartSyncEnabled() || sleepSync || autoSync) {
     const std::string stateDir = BookContentId::bookStateDir(epubPath);
     const BookOrbitSmartSync::Marker lastSync = readSyncMarker(stateDir);
+    const bool localAtStart = BookOrbitSmartSync::atBookStart(local, epub->getSpineIndexForTextReference());
     LOG_DBG("BookOrbit",
             "Smart decision: local spine=%d page=%d, remote spine=%d page=%d/%d, serverTs=%lld; last sync ts=%lld "
             "spine=%u page=%u/%u",
             local.spineIndex, local.pageNumber, remote.spineIndex, remote.pageNumber, remote.pageCount,
             (long long)remoteProgress.timestamp, (long long)lastSync.timestamp, (unsigned)lastSync.spineIndex,
             (unsigned)lastSync.pageNumber, (unsigned)lastSync.pageCount);
-    switch (BookOrbitSmartSync::decide(local, remote, remoteProgress.timestamp, lastSync)) {
+    switch (BookOrbitSmartSync::decide(local, remote, remoteProgress.timestamp, lastSync, localAtStart)) {
       case BookOrbitSmartSync::Decision::AlreadySynced:
         // Both sides agree; refresh the marker so the next visit still knows
         // whether the server moved in the meantime.
@@ -675,6 +696,12 @@ void BookOrbitSyncActivity::performSync() {
     // Nobody is there to answer the choice screen; the next manual sync asks it.
     LOG_INF("BookOrbit", "Sleep sync: progress left for the next manual sync");
     syncSession.reset();
+    return;
+  }
+  if (autoSync) {
+    LOG_INF("BookOrbit", "Auto-sync: progress left for the next manual sync");
+    syncSession.reset();
+    returnToReader();
     return;
   }
 
@@ -1644,7 +1671,7 @@ void BookOrbitSyncActivity::performUpload() {
     RenderLock lock(*this);
     state = UPLOAD_COMPLETE;
   }
-  if (smartSyncEnabled()) {
+  if (smartSyncEnabled() || autoSync) {
     markAutoReturn();
   }
   requestUpdate(true);
@@ -1706,6 +1733,14 @@ void BookOrbitSyncActivity::onEnter() {
   sdFontSystem.releaseLoadedFont(renderer);
   wifiActivated = true;
 
+  if (autoSync) {
+    // Joined from the first loop(), not here: see runAutoSync().
+    state = SYNCING;
+    statusMessage = tr(STR_CONNECTING);
+    requestUpdate();
+    return;
+  }
+
   if (WiFi.status() == WL_CONNECTED) {
     LOG_DBG("BookOrbit", "Already connected to WiFi");
     onWifiSelectionComplete(true);
@@ -1743,6 +1778,8 @@ Rect BookOrbitSyncActivity::headerBandRect() const {
 void BookOrbitSyncActivity::render(RenderLock&&) {
   // The sleep screen stays on the panel for the whole sleep sync.
   if (sleepSync) return;
+  // An auto-sync failure only logs; loop() goes straight back to the book.
+  if (autoSync && (state == SYNC_FAILED || state == NO_CREDENTIALS)) return;
 
   renderer.clearScreen();
 
@@ -1896,6 +1933,19 @@ void BookOrbitSyncActivity::loop() {
   if (sleepSync) {
     runSleepSync();  // ends in deep sleep or in a wake restart
     return;
+  }
+
+  if (autoSync) {
+    if (state == SYNC_FAILED || state == NO_CREDENTIALS) {
+      LOG_INF("BookOrbit", "Auto-sync failed (%s); opening the book", statusMessage.c_str());
+      returnToReader();
+      return;
+    }
+    if (!autoSyncStarted) {
+      autoSyncStarted = true;
+      runAutoSync();
+      return;
+    }
   }
 
   if (consumeInitialConfirmRelease()) {

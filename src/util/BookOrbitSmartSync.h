@@ -120,6 +120,12 @@ constexpr bool onlyRedated(const Position& remote, const Marker& marker) {
          remote.pageNumber - pageOutOf(marker.position(), remote.pageCount) <= PAGE_TOLERANCE;
 }
 
+// Where a book opens before anyone turned a page in it: the first page of the first spine
+// item, or of the one the book names as its text start (the reader skips ahead to it).
+constexpr bool atBookStart(const Position& position, const int textStartSpine) {
+  return position.pageNumber == 0 && position.spineIndex <= std::max(0, textStartSpine);
+}
+
 enum class Decision : uint8_t {
   AlreadySynced,  // both sides are at the same place
   ApplyRemote,    // the server moved since the last sync, and this device is not past it
@@ -130,10 +136,12 @@ enum class Decision : uint8_t {
 
 // local and remote are both in today's pages, remote being the server position mapped
 // into them. Acts only when the order of the positions and what happened on the server
-// since the last sync tell the same story.
+// since the last sync tell the same story. localAtStart: local is atBookStart().
 constexpr Decision decide(const Position& local, const Position& remote, const int64_t remoteTimestamp,
-                          const Marker& marker) {
+                          const Marker& marker, const bool localAtStart = false) {
   if (samePlace(local, remote)) return Decision::AlreadySynced;
+  // Never synced here and not read here either: the server's position overwrites nothing.
+  if (marker.timestamp <= 0 && localAtStart) return Decision::ApplyRemote;
   if (remoteTimestamp <= 0 || marker.timestamp <= 0) return Decision::AskNoHistory;
 
   // A newer date alone does not say the server moved: see onlyRedated(). Anywhere else

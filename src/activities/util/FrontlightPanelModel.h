@@ -38,6 +38,14 @@ constexpr bool supportsFrontlightDrawer(const bool hasTouchHardware, const bool 
   return hasTouchHardware && (hasFrontlight || hasReaderDetailsPanel);
 }
 
+// Touch boards without a home key open the reader menu with a down-swipe. Where a
+// frontlight is fitted (Picco), the down-swipe that starts at the top edge opens the
+// light panel instead, as the X4 Pro's top edge does. The Sticky keeps its own scheme.
+constexpr bool readerTopEdgeOpensLightPanel(const bool hasTouchHardware, const bool hasHomeKey,
+                                            const bool hasFrontlight, const bool stickyScheme) {
+  return hasTouchHardware && !hasHomeKey && hasFrontlight && !stickyScheme;
+}
+
 struct FrontlightPanelBookDetails {
   std::string title;
   std::string author;

@@ -2358,7 +2358,7 @@ void HomeActivity::onSelectBook(const std::string& path) {
   if (Storage.exists(CAROUSEL_CACHE_TMP_PATH)) {
     Storage.remove(CAROUSEL_CACHE_TMP_PATH);
   }
-  activityManager.goToReader(path);
+  activityManager.openBook(path);
 }
 
 void HomeActivity::onMinimalBrowseOpen() {

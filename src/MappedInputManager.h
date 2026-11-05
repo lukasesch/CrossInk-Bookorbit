@@ -184,6 +184,9 @@ class MappedInputManager {
   bool wasReaderMenuGesture() const;
   bool wasReaderHomeGesture() const;
   bool wasReaderLightPanelGesture() const;
+  // Top-edge down-swipe on boards where readerTopEdgeOpensLightPanel() holds (Picco):
+  // the reader's light panel there, never its menu.
+  bool wasReaderTopEdgeLightPanelGesture() const;
   // Reader-menu shortcut: a long press of the capacitive home key.
   bool wasReaderMenuHold() const;
 #else
@@ -235,6 +238,7 @@ class MappedInputManager {
   constexpr bool wasReaderMenuGesture() const { return false; }
   constexpr bool wasReaderHomeGesture() const { return false; }
   constexpr bool wasReaderLightPanelGesture() const { return false; }
+  constexpr bool wasReaderTopEdgeLightPanelGesture() const { return false; }
   constexpr bool wasReaderMenuHold() const { return false; }
 #endif
   // Directions for tabbed menus, derived from the physical button layout.

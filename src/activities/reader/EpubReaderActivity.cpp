@@ -88,6 +88,7 @@
 #include "util/BookCacheUtils.h"
 #include "util/BookContentId.h"
 #include "util/BookMoveUtils.h"
+#include "util/BookOrbitSmartSync.h"
 #include "util/Dictionary.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SlideSwitch.h"
@@ -2559,6 +2560,7 @@ void EpubReaderActivity::onEnter() {
   BOOKMARKS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
   CLIPPINGS.loadForBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), "epub");
 
+  bool hasSavedProgress = false;
   uint16_t restartPageBuildSpine = UINT16_MAX;
   uint16_t restartPageBuildTarget = 0;
   bool resumeAutoPageTurnAfterRestart = false;
@@ -2583,6 +2585,7 @@ void EpubReaderActivity::onEnter() {
   } else {
     EpubReaderUtils::Progress progress;
     if (EpubReaderUtils::loadProgress(*epub, progress)) {
+      hasSavedProgress = true;
       currentSpineIndex = progress.spineIndex;
       nextPageNumber = progress.pageNumber;
       cachedSpineIndex = currentSpineIndex;
@@ -2630,6 +2633,15 @@ void EpubReaderActivity::onEnter() {
       LOG_ERR("ERS", "Ignoring invalid low-memory partial restart target: spine=%u target=%u", restartPageBuildSpine,
               restartPageBuildTarget);
     }
+  }
+
+  // A catalog download the user opens before reading in it takes the server's position
+  // first. Only a user's open is armed, so the reader the sync returns to never re-arms.
+  if (activityManager.consumeBookOrbitAutoSyncArm(epub->getPath()) && !pendingPercentJump &&
+      !resumePageBuildAfterRestart &&
+      (!hasSavedProgress || BookOrbitSmartSync::atBookStart({currentSpineIndex, nextPageNumber, 1},
+                                                            epub->getSpineIndexForTextReference()))) {
+    startBookOrbitAutoSyncIfDue(epub->getPath(), SETTINGS.orientation);
   }
 
   loadLinkStack();
@@ -3273,7 +3285,7 @@ void EpubReaderActivity::loop() {
     std::string openPath;
     switch (endOfBookOptions->handleMenuInput(mappedInput, &openPath)) {
       case EndOfBookOptions::Action::OpenBook:
-        activityManager.goToReader(openPath);
+        activityManager.openBook(openPath);
         return;
       case EndOfBookOptions::Action::GoHome:
         onGoHome();

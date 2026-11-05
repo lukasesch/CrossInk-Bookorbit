@@ -565,10 +565,13 @@ void ActivityManager::loop() {
 
       // Frontlight quick panel: top-edge down-swipe on home-key boards, except
       // that the open EPUB reader exposes the same action across the whole page.
+      // Lit touch boards without a home key take the top edge in every reader.
       // Pushed, so it returns to whatever was underneath — including mid-book.
-      const bool lightPanelGesture = currentActivity->usesFullScreenReaderVerticalSwipes()
-                                         ? mappedInput.wasReaderLightPanelGesture()
-                                         : mappedInput.wasLightPanelGesture();
+      const bool lightPanelGesture =
+          currentActivity->usesFullScreenReaderVerticalSwipes()
+              ? mappedInput.wasReaderLightPanelGesture()
+              : mappedInput.wasLightPanelGesture() ||
+                    (currentActivity->isBookReaderActivity() && mappedInput.wasReaderTopEdgeLightPanelGesture());
       if (supportsFrontlightDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
                                    hasStickyReaderDetailsPanel()) &&
           currentActivity->name != "FrontlightPanel" && currentActivity->allowFrontlightPanelGesture() &&
@@ -1034,6 +1037,17 @@ void ActivityManager::goToReader(std::string path, const bool suppressBackReleas
   OPDS_STORE.release();
   replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), suppressBackRelease,
                                                    allowFastInitialRefresh, cleanImageBaseOnEntry));
+}
+
+void ActivityManager::openBook(std::string path) {
+  bookOrbitAutoSyncPath = path;
+  goToReader(std::move(path));
+}
+
+bool ActivityManager::consumeBookOrbitAutoSyncArm(const std::string& path) {
+  const bool armed = !bookOrbitAutoSyncPath.empty() && bookOrbitAutoSyncPath == path;
+  std::string().swap(bookOrbitAutoSyncPath);
+  return armed;
 }
 
 void ActivityManager::goToReaderAndRunMenuAction(std::string path, const uint8_t action) {
