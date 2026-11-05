@@ -14,7 +14,6 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/FirmwareFlasher.h"
-#include "network/UpdateSlot.h"
 
 void SdFirmwareUpdateActivity::onEnter() {
   Activity::onEnter();
@@ -80,8 +79,8 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
   // probed via Update.begin(firmwareSize)/Update.abort() to learn the partition
   // size, which had the side effect of erasing partition state and was wasted
   // work since we only need the size bound for validation here.
-  const esp_partition_t* dest = updateSlot();
-  if (!dest) {
+  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
+  if (!dest || dest == esp_ota_get_running_partition()) {
     LOG_ERR("FW", "no next-update partition available");
     errorMessage = tr(STR_INVALID_FIRMWARE);
     return false;
@@ -216,7 +215,7 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const char* headerText = recoveryMode ? tr(STR_RECOVERY_MODE) : tr(STR_SD_FIRMWARE_UPDATE);
-  const Rect header{0, metrics.topPadding, pageWidth, TouchHeaderBackButton::height(metrics, mappedInput)};
+  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
   if (state == State::FAILED && mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, header, headerText, false);
   } else {

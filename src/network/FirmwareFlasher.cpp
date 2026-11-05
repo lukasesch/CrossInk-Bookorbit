@@ -14,7 +14,6 @@
 
 #include "FirmwareBoardTag.h"
 #include "OtaBootSwitch.h"
-#include "UpdateSlot.h"
 
 namespace firmware_flash {
 
@@ -265,8 +264,8 @@ Result validateImageFile(const char* sdPath, size_t partitionSize) {
 }
 
 Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
-  const esp_partition_t* dest = updateSlot();
-  if (!dest) {
+  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
+  if (!dest || dest == esp_ota_get_running_partition()) {
     LOG_ERR("FLASH", "no next-update partition");
     return Result::NO_PARTITION;
   }
@@ -326,8 +325,8 @@ Result flashValidatedFile(HalFile& file, ProgressCb onProgress, void* ctx) {
 Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx) {
   // Resolve destination first so validation can enforce the OTA partition
   // limit before the same open file is used for the write pass.
-  const esp_partition_t* dest = updateSlot();
-  if (!dest) {
+  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
+  if (!dest || dest == esp_ota_get_running_partition()) {
     LOG_ERR("FLASH", "no next-update partition");
     return Result::NO_PARTITION;
   }

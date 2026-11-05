@@ -20,7 +20,6 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback, void*, s
 #include "AppVersion.h"
 #include "FirmwareFlasher.h"
 #include "OtaUpdater.h"
-#include "UpdateSlot.h"
 #include "esp_http_client.h"
 #include "esp_ota_ops.h"
 #include "mbedtls/sha256.h"
@@ -428,8 +427,8 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
 
   processedSize = 0;
 
-  const esp_partition_t* updatePartition = updateSlot();
-  if (updatePartition == nullptr) {
+  const esp_partition_t* updatePartition = esp_ota_get_next_update_partition(nullptr);
+  if (updatePartition == nullptr || updatePartition == esp_ota_get_running_partition()) {
     LOG_ERR("OTA", "No OTA update partition found");
     return INTERNAL_UPDATE_ERROR;
   }
@@ -460,19 +459,8 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
   }
   Storage.remove(OTA_STAGE_PATH);
 
-  // Remove a previous partial download before measuring free space. Some SD
-  // transports cannot report capacity; in that case let the download surface
-  // its actual I/O failure instead of reporting a false card-full error.
-  if (otaSize > 0) {
-    const uint64_t totalBytes = Storage.totalBytes();
-    const uint64_t usedBytes = Storage.usedBytes();
-    const uint64_t freeBytes = totalBytes > usedBytes ? totalBytes - usedBytes : 0;
-    if (totalBytes > 0 && freeBytes < otaSize) {
-      LOG_ERR("OTA", "Insufficient SD space for OTA: free=%llu required=%zu",
-              static_cast<unsigned long long>(freeBytes), otaSize);
-      return SD_CARD_FULL_ERROR;
-    }
-  }
+  // Avoid a whole-card free-space scan on the loop task. The staging download
+  // checks writes; only a complete, validated image can reach the flash step.
 
   HttpDownloader::DownloadOptions downloadOptions;
   downloadOptions.shouldCancel = isCancellationRequested;

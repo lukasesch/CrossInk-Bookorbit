@@ -4,6 +4,7 @@
 #include <InputManager.h>
 
 #include "AppCapabilities.h"
+#include "ButtonInputBuffer.h"
 
 // Display SPI pins (custom pins for XteinkX4, not hardware SPI defaults)
 #define EPD_SCLK 8   // SPI Clock
@@ -22,6 +23,7 @@
 class HalGPIO {
 #if CROSSPOINT_EMULATED == 0
   InputManager inputMgr;
+  ButtonInputBuffer::Frame buttonFrame;
 #endif
 
   bool lastUsbConnected = false;
@@ -90,6 +92,15 @@ class HalGPIO {
 
   // Button input methods
   void update();
+  void startButtonCapture();
+  void stopButtonCapture();
+  bool prepareForDeepSleep();
+  bool hasToggleSwitch() const;
+  bool isToggleSwitchOn() const;
+  uint32_t buttonSampleTime() const;
+  bool hasPendingButtonInput() const;
+  // Returns early on a hardware input edge; retains timed polling as fallback.
+  bool waitForInput(uint32_t timeoutMs);
   bool isPressed(uint8_t buttonIndex) const;
   bool wasPressed(uint8_t buttonIndex) const;
   bool wasAnyPressed() const;
@@ -134,9 +145,6 @@ class HalGPIO {
   constexpr bool wasHomeKeyTapped() const { return false; }
   constexpr bool wasHomeKeyLongPressed() const { return false; }
 #endif
-  // Two-position slide switch (Picco). Debounced position; false on boards without one.
-  bool hasToggleSwitch() const;
-  bool isToggleSwitchOn() const;
   void setSharedConfirmPowerShortPressEmitsPower(bool enabled);
 
   // Verify the physical power button through debounce, then require a long
@@ -149,7 +157,6 @@ class HalGPIO {
   // edge tracking. It only reads a GPIO register, so a task other than the main
   // loop may poll it. False on boards without a power-button GPIO.
   bool isPowerButtonPhysicallyPressed() const;
-  void prepareForDeepSleep();
 
   // Check if USB is connected
   bool isUsbConnected() const;

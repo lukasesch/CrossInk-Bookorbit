@@ -11,7 +11,9 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "FilenameFontSystem.h"
 #include "activities/Activity.h"
+#include "components/MenuNavigationNote.h"
 #include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
 
@@ -23,9 +25,11 @@ enum class SettingAction {
   RemapFrontButtonsReader,
   CustomiseStatusBar,
   DisplayStatusBar,
+  ScreenCalibration,
   KOReaderSync,
   BookOrbitSync,
   OPDSBrowser,
+  Plugins,
   DisplaySleepScreen,
   DisplayFrontlight,
   ReaderFontOptions,
@@ -39,7 +43,10 @@ enum class SettingAction {
   ControlsTapsGestures,
   ControlsTwoFingerSwipe,
   ControlsEdgeGestures,
+  ReleaseNotes,
+  About,
   SystemDevice,
+  SystemAdvanced,
   SystemFilesCache,
   SystemReadingStats,
   SystemGlobalStats,
@@ -50,6 +57,9 @@ enum class SettingAction {
   CheckForUpdates,
   SdFirmwareUpdate,
   Language,
+  DownloadLanguages,
+  ManageHyphenation,
+  FilenameFallbackFont,
   KeyboardLayouts,
   DownloadFonts,
   TtfRendering,
@@ -227,6 +237,13 @@ inline bool settingShowsNavigationCaret(const SettingInfo& setting) {
 }
 
 class SettingsActivity final : public Activity {
+#ifdef SIMULATOR
+  friend struct ScreenCalibrationSmokeTest;
+  friend struct ReaderDrawerLayoutSmokeTest;
+#endif
+#ifdef SIMULATOR
+  friend struct AssetDownloadSmokeTest;
+#endif
  public:
   enum class View : uint8_t { Root, FileBrowser };
 
@@ -255,6 +272,7 @@ class SettingsActivity final : public Activity {
   std::vector<SettingInfo> controlsEdgeGestureSettings;
   std::vector<SettingInfo> systemSettings;
   std::vector<SettingInfo> systemDeviceSettings;
+  std::vector<SettingInfo> systemAdvancedSettings;
   std::vector<SettingInfo> systemFilesCacheSettings;
   std::vector<SettingInfo> fileBrowserSettings;
   std::vector<SettingInfo> systemReadingStatsSettings;
@@ -269,6 +287,7 @@ class SettingsActivity final : public Activity {
   // The frontlight drawer pushes Settings over an active reader. Closing that
   // instance must pop back to the panel instead of replacing the reader with Home.
   bool returnToParentOnClose = false;
+  bool touchscreenRecovery = false;
   View view = View::Root;
   // Settings can be created over a landscape reader. Its teardown resets the
   // renderer before this activity enters, so retain the requested layout.
@@ -279,6 +298,24 @@ class SettingsActivity final : public Activity {
   SettingAction parentSubmenu = SettingAction::None;
 
   OptionPopup optionPopup;
+  HeapObject<I18n::Catalog> languageCatalog;
+  I18n::Option pendingLanguage;
+  bool languageDownloadsOpen = false;
+  bool languageRestartRequired = false;
+  bool pendingLanguageDownloads = false;
+  bool openLanguageDownloadsPending = false;
+  bool pendingLanguageDownloadConnect = false;
+  bool pendingLanguageDownloadAction = false;
+  uint8_t languageDownloadRow = 0;  // Index into LANGUAGE_CODES of the tapped download row.
+  mutable char languageDownloadLabel[256] = {};
+  char languageRuntimeNote[96] = {};
+#if CROSSINK_SCALABLE_FONTS
+  std::vector<FilenameFontSystem::Family> filenameFontNames;
+  char pendingFilenameFont[64] = {};
+  bool filenameFontSelectionPending = false;
+#endif
+  StrId languageError = StrId::_COUNT;
+  MenuNavigationNote menuNavigationNote;
 
   static constexpr int categoryCount = 4;
   static const StrId categoryNames[categoryCount];
@@ -311,7 +348,14 @@ class SettingsActivity final : public Activity {
   void maybePromptKeepClockInSleep(bool clockShownBefore);
   void openScreenMarginPicker(const SettingInfo& setting);
   void openWordSpacingPicker();
+  void openCharacterSpacingPicker();
   void openLanguagePicker();
+  void openLanguageDownloads();
+  void selectLanguageDownload();
+  void startLanguageDownload();
+  int languageSourceIndex(const char* code) const;
+  void openFilenameFontPicker();
+  void applyLanguage(const I18n::Option& selected);
   void openIdleTimeThresholdPicker();
   void toggleCurrentSetting();
   void openSleepTimeoutPicker();
@@ -327,11 +371,22 @@ class SettingsActivity final : public Activity {
  public:
   explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool dismissOnUpSwipe = false,
                             bool returnToParentOnClose = false, View view = View::Root);
-  bool allowGlobalHomeSwipeGesture() const override { return false; }
+  bool allowGlobalHomeSwipeGesture() const override { return !dismissOnUpSwipe && !optionPopup.isActive(); }
   bool handleHomeGesture() override;
+  // Opens System > Device with the Download Languages popup once the activity enters.
+  void openLanguageDownloadsOnEnter() { openLanguageDownloadsPending = true; }
+  void enableTouchscreenRecovery() { touchscreenRecovery = true; }
 #ifdef SIMULATOR
+  void simulatorOpenFrontButtons();
   int simulatorCategoryIndex() const { return selectedCategoryIndex; }
   int simulatorSelectedIndex() const { return selectedSettingIndex; }
+  bool simulatorOptionPopupActive() const { return optionPopup.isActive(); }
+#if CROSSINK_SCALABLE_FONTS
+  const std::vector<FilenameFontSystem::Family>& simulatorFilenameFontNames() const { return filenameFontNames; }
+#endif
+  freeink::ui::Rect simulatorSafeRect() const { return app.device().safeRect(); }
+  SettingAction simulatorActiveSubmenu() const { return activeSubmenu; }
+  bool simulatorLanguageDownloadsOpen() const { return languageDownloadsOpen && optionPopup.isActive(); }
 #endif
   void onEnter() override;
   void onExit() override;

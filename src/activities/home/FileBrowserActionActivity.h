@@ -31,10 +31,12 @@ enum class FileBrowserAction : int {
   Rename = 18,
   ReadingStats = 19,
   ToggleBookStatsTracking = 20,
+  UploadFolderProgress = 21,
+  SyncProgress = 22,
   // BookOrbit catalog book rows.
-  Open = 21,
-  Download = 22,
-  Redownload = 23,
+  Open = 23,
+  Download = 24,
+  Redownload = 25,
 };
 
 class FileBrowserActionActivity final : public Activity {

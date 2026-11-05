@@ -4,14 +4,15 @@
 
 HalFrontlight HalFrontlight::instance;
 
-void HalFrontlight::probe() {
-  if (probed) return;
-  probed = true;
+void HalFrontlight::initializeHardware() {
+  if (initialized) return;
+  // I2C frontlights report presence only after the SDK probes the driver.
   manager.begin();
+  initialized = true;
 }
 
 void HalFrontlight::begin(const uint8_t brightness, const uint8_t warmth, const bool on) {
-  probe();
+  initializeHardware();
   if (!manager.present()) {
     return;
   }

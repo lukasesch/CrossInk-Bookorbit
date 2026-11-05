@@ -1,7 +1,6 @@
 """
 PlatformIO post-build script: fail when firmware.bin does not fit in the
-smallest OTA app partition of the env's table; with no OTA partition, the smallest
-app partition. A factory recovery slot does not limit the image.
+selected application partition, or the smallest app slot for multi-slot layouts.
 """
 
 import csv
@@ -43,8 +42,9 @@ def _get_partition_file(project_dir, env):
     return os.path.join(project_dir, partition_file)
 
 
-def _get_app_partition_limit(partition_file):
-    app_partitions = []
+def _get_app_partition_limit(partition_file, target_label=None):
+    app_sizes = []
+    app_labels = []
 
     with open(partition_file, newline='', encoding='utf-8') as fp:
         for row in csv.reader(fp):
@@ -55,17 +55,17 @@ def _get_app_partition_limit(partition_file):
             if not row[0] or row[0].startswith('#') or len(row) < 5:
                 continue
 
-            name, partition_type, subtype, _offset, size = row[:5]
-            if partition_type != 'app':
+            name, partition_type, _subtype, _offset, size = row[:5]
+            if partition_type != 'app' or (target_label and name != target_label):
                 continue
 
-            app_partitions.append((name, subtype, _parse_size(size)))
+            app_labels.append(name)
+            app_sizes.append(_parse_size(size))
 
-    if not app_partitions:
+    if not app_sizes:
         return None, None
 
-    candidates = [p for p in app_partitions if p[1].startswith('ota_')] or app_partitions
-    return min(p[2] for p in candidates), ', '.join(p[0] for p in candidates)
+    return min(app_sizes), ', '.join(app_labels)
 
 
 def check_firmware_size(source, target, env):
@@ -80,7 +80,8 @@ def check_firmware_size(source, target, env):
         print('Unable to find partition table for firmware size check', file=sys.stderr)
         env.Exit(1)
 
-    limit, labels = _get_app_partition_limit(partition_file)
+    target_label = _get_project_option(env, "custom_firmware_app_partition")
+    limit, labels = _get_app_partition_limit(partition_file, target_label)
     if not limit:
         print(f'No app partition found in {partition_file}', file=sys.stderr)
         env.Exit(1)

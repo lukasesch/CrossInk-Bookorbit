@@ -7,13 +7,14 @@ on; for everything inherited from upstream, see the
 
 ## [Unreleased]
 
+Based on CrossInk v2.0.0 (pre-release `release/v2.0.0` `b8feaec4`).
+
 ### Added
 
-- `Settings > Display > Frontlight > Brightness & Warmth` opens the brightness and warmth sliders, on every reader with a frontlight. Readers without a Home key had no way to reach them.
-- BOOX Picco: the slide switch turns the frontlight on and off, as on the stock firmware. `Settings > Controls > Slide Switch` binds it to Dark Mode or Touch Reader Controls instead. While the switch owns a function, its other toggles are hidden or do nothing, and the light at wake follows the switch rather than Restore Light on Wake or the schedule.
+- `Settings > Display > Frontlight > Brightness & Warmth` opens the brightness and warmth sliders, on every reader with a frontlight, besides the swipe gesture.
+- BOOX Picco: the slide switch has a position, not a toggle. `Settings > Controls > Slide Switch` binds it to the frontlight (the default), Dark Mode, Touch Reader Controls or Tilt Page Turn, and the feature follows the switch at every move, start and wake. While the switch owns a function, its other toggles are hidden or do nothing, and the light at wake follows the switch rather than Restore Light on Wake or the schedule.
 - A book downloaded from the BookOrbit catalog takes the server's reading position the first time you open it, without opening any menu. The reader joins a saved Wi-Fi network, syncs progress, highlights and bookmarks, and opens the book there. Without Wi-Fi, a reachable server or server progress, the book opens at its start and the next open tries again, until a sync of the book has completed or you have read in it.
-- BOOX Picco: a downward swipe from the top edge of the page opens the frontlight panel (brightness, warmth, dark mode, BookOrbit Sync) while reading. A downward swipe anywhere else still opens the reader menu.
-- Experimental `picco` build for the BOOX Picco. It runs on a retail unit: display, touch, buttons, frontlight, and sleep and wake work. It installs into the stock app slot only and has no OTA or SD card update, because the stock partition table has one app slot. See the [installation guide](docs/installation.md#boox-picco).
+- `picco` build for the BOOX Picco, on CrossInk v2.0.0's Picco support. It installs into the stock app slot only and has no OTA or SD card update, because the stock partition table has one app slot. The PlatformIO `erase`, `erase_upload`, `uploadfs` and `uploadfsota` targets refuse to run for it, since each would destroy the vendor bootloader or recovery partition. See the [installation guide](docs/installation.md#boox-picco).
 
 ### Changed
 

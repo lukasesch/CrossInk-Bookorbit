@@ -1171,7 +1171,7 @@ void BookOrbitSyncActivity::applyIncomingBookmarks() {
       LOG_ERR("BookOrbit", "Could not store server bookmark %lu", static_cast<unsigned long>(incoming.serverId));
       continue;  // unacknowledged: retried next sync
     }
-    const Bookmark& stored = BOOKMARKS.getBookmarks().back();
+    const Bookmark& stored = BOOKMARKS.getBookmarks()[BOOKMARKS.getBookmarks().size() - 1];
     if (stored.timestamp == 0) {
       // No plausible clock: no identity can be minted, so the apply cannot be linked. Roll the
       // bookmark back and let the next sync (which starts with an NTP refresh) retry.

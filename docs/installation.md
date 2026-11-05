@@ -7,11 +7,10 @@ nav_order: 2
 
 ## Supported Devices
 
-- Xteink X3, X4
-- Xteink X4 Pro
-- Xteink X4 Classic
+- Xteink X3 and X4
+- Xteink X4 Classic and X4 Pro
 - Seeed Studio Sticky
-- BOOX Picco: experimental build, see [BOOX Picco](#boox-picco). There is no release file yet.
+- BOOX Picco: supported by CrossInk v2.0.0 (see [BOOX Picco](./picco.md)); this fork publishes no release file for it, see [BOOX Picco](#boox-picco) below.
 
 ## Firmware Files
 
@@ -21,6 +20,12 @@ device model. CrossInk's own web installer and update feeds only carry upstream 
 which have no BookOrbit support. Once this fork is installed,
 `Settings > System > Check for Updates` follows this fork's releases, so later versions
 arrive over the air.
+
+## Languages and hyphenation
+
+You can add menu languages and hyphenation packs without erasing your reader.
+Some devices keep installed packs on the SD card, so keep that card in the
+reader. See [Languages](./languages.md) for setup and recovery.
 
 ## Web Installation via USB
 
@@ -34,10 +39,13 @@ arrive over the air.
 
 ## USB Drive
 
-On X4 Pro, choose `Home > File Transfer > USB Drive` to expose the SD card to
-your computer. Eject the drive from the computer before disconnecting it; the
-reader restarts to Home when the drive is safely ejected or the cable is
-removed.
+On the X4 Classic and X4 Pro, you can plug the reader into your computer and use its SD card like a USB stick. This is handy for copying books and fonts.
+
+1. On the reader, go to **Home > File Transfer > USB Drive**.
+2. Connect the reader to your computer with a USB-C cable.
+3. When you are done, eject the drive on your computer first, then unplug the cable.
+
+The reader returns to the Home screen once the drive is ejected or the cable is removed.
 
 ## SD Card Firmware Update
 
