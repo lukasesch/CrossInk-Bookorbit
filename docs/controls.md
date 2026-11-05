@@ -250,6 +250,22 @@ Quick Lock still follows the regular **Time to Sleep** setting. If the timeout
 expires, the device sleeps and restores the lock when it wakes. Reading timers
 pause while Quick Lock is active.
 
+## Slide Switch
+
+On the BOOX Picco, **Settings > Controls > Slide Switch** chooses what the
+hardware slide switch controls: **Frontlight** (the default), **Dark Mode**, or
+**Touch Reader Controls**. The switch position always wins: it is applied when
+it moves, when the binding changes, and at every wake.
+
+While the switch owns a function, nothing else changes it behind the switch:
+
+- Frontlight: the light toggle in the frontlight panel, Restore Light on Wake
+  and the schedule are hidden, and the Toggle Frontlight shortcuts do nothing.
+  Brightness and warmth still change, but never switch the light on.
+- Dark Mode: the Dark Mode setting is hidden, and the frontlight panel's
+  dark mode button and the Dark Mode shortcuts do nothing.
+- Touch Reader Controls: the setting is hidden from the web settings.
+
 ## Footnote Shortcut
 
 When a shortcut is mapped to **Footnotes**, it opens the page-reference selector

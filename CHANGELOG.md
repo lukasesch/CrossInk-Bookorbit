@@ -9,7 +9,9 @@ on; for everything inherited from upstream, see the
 
 ### Added
 
-- Experimental `picco` build for the BOOX Picco. It has not run on a device. It installs into the stock app slot only and has no OTA or SD card update, because the stock partition table has one app slot. See the [installation guide](docs/installation.md#boox-picco).
+- `Settings > Display > Frontlight > Brightness & Warmth` opens the brightness and warmth sliders, on every reader with a frontlight. Readers without a Home key had no way to reach them.
+- BOOX Picco: the slide switch turns the frontlight on and off, as on the stock firmware. `Settings > Controls > Slide Switch` binds it to Dark Mode or Touch Reader Controls instead. While the switch owns a function, its other toggles are hidden or do nothing, and the light at wake follows the switch rather than Restore Light on Wake or the schedule.
+- Experimental `picco` build for the BOOX Picco. It runs on a retail unit: display, touch, buttons, frontlight, and sleep and wake work. It installs into the stock app slot only and has no OTA or SD card update, because the stock partition table has one app slot. See the [installation guide](docs/installation.md#boox-picco).
 
 ## [v1.6.1+bookorbit.4] - 2026-10-30
 

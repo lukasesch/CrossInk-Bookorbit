@@ -132,6 +132,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "util/PowerButtonWakeWatcher.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SleepWakePolicy.h"
+#include "util/SlideSwitch.h"
 
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
@@ -668,6 +669,48 @@ CrossPointSettings::SHORT_PWRBTN getPowerButtonAction() {
   return action;
 }
 
+// Applies the slide switch position to its bound function at boot/wake, on each
+// change, and when the binding changes. Compares the level, not the change edge:
+// transfer loops poll input and clear the edge before this runs. True when a
+// setting changed and needs persisting.
+bool applySlideSwitch() {
+  static int appliedAction = -1;
+  static int appliedOn = -1;
+  if (!deviceHasSlideSwitch(gpio)) return false;
+  const bool on = deviceSlideSwitchOn(gpio);
+  if (appliedAction == SETTINGS.slideSwitchAction && appliedOn == static_cast<int>(on)) return false;
+  appliedAction = SETTINGS.slideSwitchAction;
+  appliedOn = on;
+  switch (SETTINGS.slideSwitchAction) {
+    case CrossPointSettings::SLIDE_SWITCH_NIGHT_MODE:
+      if ((SETTINGS.screenInverted != 0) == on) return false;
+      SETTINGS.screenInverted = on ? 1 : 0;
+      break;
+    case CrossPointSettings::SLIDE_SWITCH_TOUCH_CONTROLS:
+      if ((SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF) == on) return false;
+      SETTINGS.touchReaderControls = on ? CrossPointSettings::TOUCH_READER_ON : CrossPointSettings::TOUCH_READER_OFF;
+      break;
+    default:
+      // Also compare the saved state: boot lights the light from the switch
+      // without updating it.
+      if (!Frontlight.present() || (Frontlight.isOn() == on && (SETTINGS.frontlightOn != 0) == on)) return false;
+      Frontlight.setOn(on);
+      SETTINGS.frontlightOn = on ? 1 : 0;
+      break;
+  }
+  LOG_INF("SWITCH", "Slide switch %s (action %u)", on ? "on" : "off",
+          static_cast<unsigned>(SETTINGS.slideSwitchAction));
+  return true;
+}
+
+void handleSlideSwitch() {
+  // Quick Lock keeps the light off; the unlock follows the switch.
+  if (buttonShortcutController.isQuickLocked()) return;
+  if (!applySlideSwitch()) return;
+  activityManager.persistGlobalSettings();
+  if (SETTINGS.slideSwitchAction == CrossPointSettings::SLIDE_SWITCH_NIGHT_MODE) activityManager.requestUpdate();
+}
+
 void notifyQuickLockChanged() {
   const bool locked = buttonShortcutController.isQuickLocked();
   x4ProHomeKeyTapPending = false;
@@ -705,7 +748,12 @@ void notifyQuickLockChanged() {
       restoredBadgeBackdrop = quickLockBadgeBackdrop.restore(renderer);
       if (restoredBadgeBackdrop) renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     }
-    if (APP_STATE.quickLockRestoreFrontlight) {
+    if (slideSwitchOwnsLight()) {
+      // The switch may have moved while locked; follow it, not the pre-lock state.
+      Frontlight.setOn(deviceSlideSwitchOn(gpio));
+      SETTINGS.frontlightOn = Frontlight.isOn() ? 1 : 0;
+      APP_STATE.quickLockRestoreFrontlight = false;
+    } else if (APP_STATE.quickLockRestoreFrontlight) {
       Frontlight.setOn(true);
       APP_STATE.quickLockRestoreFrontlight = false;
     }
@@ -799,6 +847,10 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_FRONTLIGHT: {
       if (!Frontlight.present()) return false;
+      if (slideSwitchOwnsLight()) {
+        LOG_INF("LIGHT", "Frontlight shortcut ignored: the slide switch owns the light");
+        return true;
+      }
       const bool lightOn = !Frontlight.isOn();
       Frontlight.setOn(lightOn);
       SETTINGS.frontlightOn = lightOn ? 1 : 0;
@@ -969,6 +1021,10 @@ bool executeX4ProHomeButtonAction(const uint8_t action,
     case CrossPointSettings::HOME_BUTTON_BACK_HOME:
       return activityManager.handleHomeButtonBackOrHome();
     case CrossPointSettings::HOME_BUTTON_TOGGLE_FRONTLIGHT: {
+      if (slideSwitchOwnsLight()) {
+        LOG_INF("LIGHT", "Home key light toggle ignored: the slide switch owns the light");
+        return true;
+      }
       const bool lightOn = !Frontlight.isOn();
       Frontlight.setOn(lightOn);
       SETTINGS.frontlightOn = lightOn ? 1 : 0;
@@ -1714,10 +1770,15 @@ void setup() {
       restoreLightOn = false;
     }
   }
-  // The sleep sync runs while the device looks asleep; the light went out with it.
-  if (sleepSyncBoot) restoreLightOn = false;
+  // A slide switch bound to the light decides it from its position instead. The sleep
+  // sync runs while the device looks asleep; the light went out with it.
+  restoreLightOn = FrontlightSchedule::lightOnAtStart(restoreLightOn, slideSwitchOwnsLight(), deviceSlideSwitchOn(gpio),
+                                                      sleepSyncBoot);
   LOG_DBG("LIGHT", "Frontlight boot state: %s (silent=%d)", restoreLightOn ? "on" : "off", isSilentReboot ? 1 : 0);
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
+  // Apply a switch moved during sleep before the first paint, so the wake screen
+  // does not draw in the old night mode and then repaint.
+  if (!sleepSyncBoot && applySlideSwitch()) SETTINGS.saveToFile();
 
   if (recoveryFirmwareMode) {
     LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)",
@@ -2005,6 +2066,8 @@ void loop() {
     return;
   }
 
+  // After the exclusive-storage return: it saves settings to the SD card.
+  handleSlideSwitch();
   if (!buttonShortcutController.isQuickLocked()) {
     halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.tiltPageTurnDirection, SETTINGS.orientation,
                          activityManager.isReaderActivity());

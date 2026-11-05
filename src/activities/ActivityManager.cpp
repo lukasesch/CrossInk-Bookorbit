@@ -46,6 +46,7 @@
 #include "settings/SettingsActivity.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
+#include "util/SlideSwitch.h"
 #include "util/SwipeAdjustment.h"
 #include "util/TwoFingerSwipe.h"
 
@@ -181,11 +182,13 @@ bool applyConfiguredSwipeAction(Activity& activity, ActivityManager& activityMan
       const uint8_t brightness =
           static_cast<uint8_t>(std::clamp(static_cast<int>(Frontlight.brightness()) + delta, 0, 100));
       Frontlight.setBrightness(brightness);
-      Frontlight.setOn(true);
+      // A slide switch bound to the light keeps it off while switched off.
+      if (!slideSwitchOwnsLight()) Frontlight.setOn(true);
       SETTINGS.frontlightBrightness = brightness;
-      SETTINGS.frontlightOn = 1;
+      SETTINGS.frontlightOn = Frontlight.isOn() ? 1 : 0;
       activity.onExternalFrontlightChange();
-      if (persist && (brightness != previousBrightness || !previousOn)) activityManager.persistGlobalSettings();
+      if (persist && (brightness != previousBrightness || Frontlight.isOn() != previousOn))
+        activityManager.persistGlobalSettings();
       return true;
     }
     case CrossPointSettings::TWO_FINGER_SWIPE_INCREASE_WARMTH:
@@ -242,7 +245,7 @@ void updateLiveLightSwipe(Activity& activity, ActivityManager& activityManager, 
   const int difference = sign * (target - current);
   if (difference != 0 || (brightness && amount > 0 && !Frontlight.isOn()))
     applyConfiguredSwipeAction(activity, activityManager, state.action, difference, false);
-  if (brightness && amount == 0 && Frontlight.isOn() != state.initialOn) {
+  if (brightness && amount == 0 && Frontlight.isOn() != state.initialOn && !slideSwitchOwnsLight()) {
     Frontlight.setOn(state.initialOn);
     SETTINGS.frontlightOn = state.initialOn ? 1 : 0;
     activity.onExternalFrontlightChange();
@@ -253,7 +256,7 @@ void updateLiveLightSwipe(Activity& activity, ActivityManager& activityManager, 
 
 void cancelLiveLightSwipe(Activity& activity, ActivityManager& activityManager, LiveLightSwipeState& state) {
   updateLiveLightSwipe(activity, activityManager, state, 0);
-  if (Frontlight.isOn() != state.initialOn) {
+  if (Frontlight.isOn() != state.initialOn && !slideSwitchOwnsLight()) {
     Frontlight.setOn(state.initialOn);
     SETTINGS.frontlightOn = state.initialOn ? 1 : 0;
     activity.onExternalFrontlightChange();
@@ -1144,6 +1147,10 @@ bool ActivityManager::isReaderActivity() const {
 
   return std::any_of(stackActivities.begin(), stackActivities.end(),
                      [](const auto& activity) { return activity && activity->isReaderActivity(); });
+}
+
+bool ActivityManager::openFrontlightPanelFrom(Activity& source) {
+  return openFrontlightPanel(source, renderer, mappedInput);
 }
 
 bool ActivityManager::openReaderSettingsForTouchscreenEscapeHatch() {

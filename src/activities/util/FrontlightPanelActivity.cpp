@@ -27,6 +27,7 @@
 #include "components/icons/tablerIcons.h"
 #include "components/icons/touchscreenStateIcons.h"
 #include "util/ReaderBookProgress.h"
+#include "util/SlideSwitch.h"
 
 namespace fui = freeink::ui;
 
@@ -129,8 +130,9 @@ void FrontlightPanelActivity::onBrightnessEvent(const fui::ActionEvent& event, v
   if (event.dragPermille < 0) return;
   self->brightness = percentFromPermille(event.dragPermille);
   Frontlight.setBrightness(self->brightness);
-  // Adjusting brightness while off is an obvious "I want light" intent.
-  if (!self->lightOn) {
+  // Adjusting brightness while off is an obvious "I want light" intent, unless
+  // a slide switch owns the light.
+  if (!self->lightOn && !slideSwitchOwnsLight()) {
     self->lightOn = true;
     Frontlight.setOn(true);
   }
@@ -170,7 +172,7 @@ void FrontlightPanelActivity::adjustBrightness(const int delta) {
   if (next == brightness) return;
   brightness = static_cast<uint8_t>(next);
   Frontlight.setBrightness(brightness);
-  if (!lightOn) {
+  if (!lightOn && !slideSwitchOwnsLight()) {
     lightOn = true;
     Frontlight.setOn(true);
   }
@@ -188,6 +190,7 @@ void FrontlightPanelActivity::adjustWarmth(const int delta) {
 }
 
 void FrontlightPanelActivity::toggleLight() {
+  if (slideSwitchOwnsLight()) return;
   lightOn = !lightOn;
   Frontlight.setOn(lightOn);
   requestUpdate();
@@ -306,6 +309,7 @@ void FrontlightPanelActivity::activateQuickAction(const int index) {
       openSyncDialog();
       return;
     case 2:
+      if (slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_NIGHT_MODE)) return;
       SETTINGS.screenInverted = SETTINGS.screenInverted ? 0 : 1;
       display.setInverted(SETTINGS.screenInverted != 0);
       requestUpdate();
@@ -546,16 +550,19 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   const fui::Rect labelRect{headerRow.x, static_cast<int16_t>(headerRow.y + (rowH - lh) / 2),
                             static_cast<int16_t>(headerRow.width - iconW - theme.spaceMd), lh};
   screen.target().text(labelRect, line, theme.bodyText);
-  // Keep the visible glyph aligned to the content inset, but let its touch
-  // target fill the otherwise blank right edge and the adjacent row gaps.
-  // This makes the control more forgiving without reaching the brightness
-  // slider below.
-  const int16_t hitW = static_cast<int16_t>(iconW + panelSpaceLg * 4);
-  const fui::Rect hitRect{static_cast<int16_t>(headerRow.right() - hitW),
-                          static_cast<int16_t>(headerRow.y - panelSpaceSm),
-                          static_cast<int16_t>(hitW + sideInset.right), static_cast<int16_t>(rowH + panelSpaceSm * 2)};
-  screen.frame().hit(hitRect, ACTION_TOGGLE);
-  screen.target().bitmap(iconRect, lightIcon, fui::BitmapMode::Center);
+  // A slide switch bound to the light owns on/off: no toggle here.
+  if (!slideSwitchOwnsLight()) {
+    // Keep the visible glyph aligned to the content inset, but let its touch
+    // target fill the otherwise blank right edge and the adjacent row gaps.
+    // This makes the control more forgiving without reaching the brightness
+    // slider below.
+    const int16_t hitW = static_cast<int16_t>(iconW + panelSpaceLg * 4);
+    const fui::Rect hitRect{
+        static_cast<int16_t>(headerRow.right() - hitW), static_cast<int16_t>(headerRow.y - panelSpaceSm),
+        static_cast<int16_t>(hitW + sideInset.right), static_cast<int16_t>(rowH + panelSpaceSm * 2)};
+    screen.frame().hit(hitRect, ACTION_TOGGLE);
+    screen.target().bitmap(iconRect, lightIcon, fui::BitmapMode::Center);
+  }
 
   addStepSlider(screen, screen.takeTop(rowH, panelSpaceLg).inset(sideInset), brightness, ACTION_BRIGHTNESS,
                 ACTION_BRIGHTNESS_STEP);

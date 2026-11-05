@@ -697,6 +697,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontlightScheduleEnabled = 0;
   uint16_t frontlightScheduleStart = 0xFFFF;
   uint16_t frontlightScheduleEnd = 0xFFFF;
+  // What the slide switch controls (boards with one). Its position is applied at
+  // boot/wake and on each change. Persisted by index: append only.
+  enum SLIDE_SWITCH_ACTION : uint8_t {
+    SLIDE_SWITCH_FRONTLIGHT = 0,
+    SLIDE_SWITCH_NIGHT_MODE = 1,
+    SLIDE_SWITCH_TOUCH_CONTROLS = 2,
+  };
+  uint8_t slideSwitchAction = SLIDE_SWITCH_FRONTLIGHT;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Enabled keyboard layouts. Zero derives a default from the UI language;

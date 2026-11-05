@@ -36,6 +36,14 @@ constexpr bool shouldApplyOnWakeSchedule(const bool preserveLightAcrossRestart, 
   return !preserveLightAcrossRestart && (!restoreOnWake || !wasLightOnBeforeSleep);
 }
 
+// A slide switch bound to the light decides it at start from its position,
+// over the wake policy and the schedule. The sleep sync keeps it dark either way.
+constexpr bool lightOnAtStart(const bool policyLightOn, const bool switchOwnsLight, const bool switchOn,
+                              const bool sleepSyncBoot) {
+  if (sleepSyncBoot) return false;
+  return switchOwnsLight ? switchOn : policyLightOn;
+}
+
 constexpr TimeOfDay timeOfDayFromMinutes(const uint16_t timeOfDay) {
   // New endpoints begin at noon so the AM/PM picker has a useful, explicit
   // default instead of presenting the storage-oriented 00:00 value.

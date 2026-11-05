@@ -23,6 +23,7 @@
 #include "activities/home/FileBrowserActionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/SlideSwitch.h"
 
 namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
@@ -460,6 +461,7 @@ bool TxtReaderActivity::applyReaderOrientation(const uint8_t orientation) {
 }
 
 void TxtReaderActivity::toggleDarkMode() {
+  if (slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_NIGHT_MODE)) return;
   SETTINGS.screenInverted = !SETTINGS.screenInverted;
   SETTINGS.saveToFile();
   requestUpdate();

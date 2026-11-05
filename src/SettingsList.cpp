@@ -233,6 +233,10 @@ const std::vector<SettingInfo>& getBaseSettingsList() {
                           "previousPageGesture", StrId::STR_CAT_CONTROLS));
     add(SettingInfo::Toggle(StrId::STR_TAP_HIDE_STATUS_BAR, &CrossPointSettings::tapToHideStatusBar,
                             "tapToHideStatusBar", StrId::STR_CAT_CONTROLS));
+    // Listed only on boards with a slide switch (buildControlsSettingsParentList).
+    add(SettingInfo::Enum(StrId::STR_SLIDE_SWITCH, &CrossPointSettings::slideSwitchAction,
+                          {StrId::STR_FRONTLIGHT, StrId::STR_NIGHT_MODE, StrId::STR_TOUCH_READER_CONTROLS},
+                          "slideSwitchAction", StrId::STR_CAT_CONTROLS));
 
     // --- System ---
     add(SettingInfo::String(StrId::STR_DEVICE_NAME, SETTINGS.deviceName, sizeof(SETTINGS.deviceName), "deviceName",

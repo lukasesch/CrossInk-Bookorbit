@@ -42,3 +42,22 @@ inline bool deviceSupportsSideButtonChord(const HalGPIO& gpio) {
   return gpio.hasTouch();
 #endif
 }
+
+// Two-position slide switch (Picco). The simulator HAL has none.
+inline bool deviceHasSlideSwitch(const HalGPIO& gpio) {
+#ifdef SIMULATOR
+  (void)gpio;
+  return false;
+#else
+  return gpio.hasToggleSwitch();
+#endif
+}
+
+inline bool deviceSlideSwitchOn(const HalGPIO& gpio) {
+#ifdef SIMULATOR
+  (void)gpio;
+  return false;
+#else
+  return gpio.isToggleSwitchOn();
+#endif
+}

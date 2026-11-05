@@ -60,8 +60,8 @@ fork is flashed back.
 
 ## BOOX Picco
 
-This build has not run on a device. It builds and is meant for testing, and it comes with no
-promise that it works. Flashing it may void your warranty, and you do so at your own risk.
+This build runs on a retail unit: display, touch, buttons, frontlight, and sleep and wake work.
+It is still experimental and comes with no promise that it works. Flashing it may void your warranty, and you do so at your own risk.
 
 Build it with `pio run -e picco`, which writes `.pio/build/picco/firmware-picco.bin`.
 

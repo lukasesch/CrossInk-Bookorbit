@@ -25,6 +25,7 @@
 #include "util/DictionaryRegistry.h"
 #include "util/FontFamilyLabel.h"
 #include "util/FrontlightSchedule.h"
+#include "util/SlideSwitch.h"
 
 inline std::string fontSizePointLabel(const uint8_t pointSize) { return std::to_string(pointSize) + " pt"; }
 
@@ -590,8 +591,8 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // #1636) so the per-entry SettingInfo cost is paid once. Read-only consumers
 // can use it directly; mutable device UI lists use getSettingsList(), which
 // returns an owned copy and can add SD-card font and dictionary options.
-// The count is this fork's: upstream's entries plus the seven BookOrbit ones and the clock
-// latch toggle. Nine gesture entries (two-finger and edge) are compiled only for touch
+// The count is this fork's: upstream's entries plus the seven BookOrbit ones, the clock
+// latch toggle and the slide switch binding. Nine gesture entries (two-finger and edge) are compiled only for touch
 // devices, the five KOReader account entries only with its build switch, and two tilt
 // entries are added at run time on boards with the sensor.
 #if CROSSINK_APP_CAP_KOREADER_SYNC
@@ -600,7 +601,7 @@ inline constexpr size_t BASE_SETTINGS_KOREADER_ENTRIES = 5;
 inline constexpr size_t BASE_SETTINGS_KOREADER_ENTRIES = 0;
 #endif
 inline constexpr size_t BASE_SETTINGS_CAPACITY =
-    101 + 2 + (CROSSINK_APP_CAP_TOUCH ? 9 : 0) + BASE_SETTINGS_KOREADER_ENTRIES;
+    102 + 2 + (CROSSINK_APP_CAP_TOUCH ? 9 : 0) + BASE_SETTINGS_KOREADER_ENTRIES;
 
 const std::vector<SettingInfo>& getBaseSettingsList();
 
@@ -861,10 +862,12 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   const bool hasTapsGestures = hasSettingByName(allSettings, StrId::STR_NEXT_PAGE);
   const bool hasFrontButtons = !gpio.hasTouch();
   const bool hasHomeKey = gpio.hasHomeKey();
+  const bool hasSlideSwitch = deviceHasSlideSwitch(gpio);
 
   std::vector<SettingInfo> settings;
   settings.reserve(3 + (hasHomeKey ? 1u : 0u) + (hasFrontButtons ? 1u : 0u) + (hasTiltPageTurnSetting ? 1u : 0u) +
-                   (hasTiltPageTurnDirectionSetting ? 1u : 0u) + (hasTapsGestures ? 1u : 0u));
+                   (hasTiltPageTurnDirectionSetting ? 1u : 0u) + (hasTapsGestures ? 1u : 0u) +
+                   (hasSlideSwitch ? 1u : 0u));
   if (hasHomeKey) {
     settings.push_back(SettingInfo::Submenu(StrId::STR_HOME_BUTTON, SettingAction::ControlsHomeButton));
   }
@@ -879,6 +882,7 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   }
   if (hasTiltPageTurnSetting) addSettingByName(settings, allSettings, StrId::STR_TILT_PAGE_TURN);
   if (hasTiltPageTurnDirectionSetting) addSettingByName(settings, allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION);
+  if (hasSlideSwitch) addSettingByKey(settings, allSettings, "slideSwitchAction");
   return settings;
 }
 
@@ -1001,7 +1005,7 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
   displaySettings.push_back(SettingInfo::Action(StrId::STR_STATUS_BAR, SettingAction::DisplayStatusBar));
   addDisplaySetting(StrId::STR_HIDE_BATTERY);
   addDisplaySetting(StrId::STR_REFRESH_FREQ);
-  addDisplaySetting(StrId::STR_NIGHT_MODE);
+  if (!slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_NIGHT_MODE)) addDisplaySetting(StrId::STR_NIGHT_MODE);
   addDisplaySetting(StrId::STR_UI_THEME);
   if (SETTINGS.supportsLibraryFileBrowserSwap()) {
     addDisplaySetting(StrId::STR_SWAP_LIBRARY_FILE_BROWSER);
@@ -1014,7 +1018,7 @@ inline std::vector<SettingInfo> buildGroupedDisplaySettingsList(const std::vecto
 
 inline std::vector<SettingInfo> buildDisplayFrontlightSettingsList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> settings;
-  settings.reserve(4);
+  settings.reserve(5);
 
   auto addDisplaySetting = [&](const StrId nameId) {
     const auto it = std::find_if(allSettings.begin(), allSettings.end(),
@@ -1022,6 +1026,11 @@ inline std::vector<SettingInfo> buildDisplayFrontlightSettingsList(const std::ve
     if (it != allSettings.end()) settings.push_back(*it);
   };
 
+  settings.push_back(
+      SettingInfo::Action(Frontlight.hasColorTemperature() ? StrId::STR_BRIGHTNESS_WARMTH : StrId::STR_BRIGHTNESS,
+                          SettingAction::FrontlightPanel));
+  // A slide switch bound to the light decides its on/off state, at wake too.
+  if (slideSwitchOwnsLight()) return settings;
   addDisplaySetting(StrId::STR_RESTORE_LIGHT_ON_WAKE);
   if (halClock.isAvailable()) {
     addDisplaySetting(StrId::STR_FRONTLIGHT_SCHEDULE);

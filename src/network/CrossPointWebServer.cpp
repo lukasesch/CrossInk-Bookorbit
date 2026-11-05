@@ -42,6 +42,7 @@
 #include "util/BookMoveUtils.h"
 #include "util/FontFamilyLabel.h"
 #include "util/ReaderStatusBarJson.h"
+#include "util/SlideSwitch.h"
 #include "util/StringUtils.h"
 
 namespace {
@@ -171,6 +172,20 @@ bool isWebSettingAvailable(const SettingInfo& setting) {
       default:
         break;
     }
+  }
+
+  // The binding needs a switch; the function it owns gets no second control.
+  if (setting.nameId == StrId::STR_SLIDE_SWITCH && !deviceHasSlideSwitch(gpio)) return false;
+  if (slideSwitchOwnsLight() && (setting.nameId == StrId::STR_FRONTLIGHT || isFrontlightScheduleSetting ||
+                                 setting.nameId == StrId::STR_RESTORE_LIGHT_ON_WAKE)) {
+    return false;
+  }
+  if (setting.nameId == StrId::STR_NIGHT_MODE && slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_NIGHT_MODE)) {
+    return false;
+  }
+  if (setting.nameId == StrId::STR_TOUCH_READER_CONTROLS &&
+      slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_TOUCH_CONTROLS)) {
+    return false;
   }
 
   return true;

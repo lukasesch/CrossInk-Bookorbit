@@ -34,6 +34,17 @@ TEST(FrontlightSchedule, SilentRestartPreservesLightStateWithoutWakePolicy) {
       /*preserveLightAcrossRestart=*/true, /*restoreOnWake=*/true, /*wasLightOnBeforeSleep=*/false));
 }
 
+TEST(FrontlightSchedule, SlideSwitchOwningTheLightOverridesWakePolicy) {
+  EXPECT_TRUE(FrontlightSchedule::lightOnAtStart(/*policyLightOn=*/false, /*switchOwnsLight=*/true,
+                                                 /*switchOn=*/true, /*sleepSyncBoot=*/false));
+  EXPECT_FALSE(FrontlightSchedule::lightOnAtStart(/*policyLightOn=*/true, /*switchOwnsLight=*/true,
+                                                  /*switchOn=*/false, /*sleepSyncBoot=*/false));
+  EXPECT_TRUE(FrontlightSchedule::lightOnAtStart(/*policyLightOn=*/true, /*switchOwnsLight=*/false,
+                                                 /*switchOn=*/false, /*sleepSyncBoot=*/false));
+  EXPECT_FALSE(FrontlightSchedule::lightOnAtStart(/*policyLightOn=*/true, /*switchOwnsLight=*/true,
+                                                  /*switchOn=*/true, /*sleepSyncBoot=*/true));
+}
+
 TEST(FrontlightSchedule, SameEndpointIsAnEmptyWindow) {
   EXPECT_FALSE(FrontlightSchedule::hasCompleteWindow(true, timeOfDay(18), timeOfDay(18)));
   EXPECT_FALSE(FrontlightSchedule::containsTimeOfDay(timeOfDay(18), timeOfDay(18), timeOfDay(18)));

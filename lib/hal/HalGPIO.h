@@ -134,6 +134,9 @@ class HalGPIO {
   constexpr bool wasHomeKeyTapped() const { return false; }
   constexpr bool wasHomeKeyLongPressed() const { return false; }
 #endif
+  // Two-position slide switch (Picco). Debounced position; false on boards without one.
+  bool hasToggleSwitch() const;
+  bool isToggleSwitchOn() const;
   void setSharedConfirmPowerShortPressEmitsPower(bool enabled);
 
   // Verify the physical power button through debounce, then require a long

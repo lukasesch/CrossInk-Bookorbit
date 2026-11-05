@@ -90,6 +90,7 @@
 #include "util/BookMoveUtils.h"
 #include "util/Dictionary.h"
 #include "util/ScreenshotUtil.h"
+#include "util/SlideSwitch.h"
 
 namespace {
 constexpr unsigned long TOUCH_DICTIONARY_LOOKUP_HOLD_MS = 1000;
@@ -5401,6 +5402,7 @@ void EpubReaderActivity::executeReaderQuickAction(CrossPointSettings::LONG_PRESS
       }
       break;
     case CrossPointSettings::LONG_MENU_TOGGLE_DARK_MODE: {
+      if (slideSwitchOwns(CrossPointSettings::SLIDE_SWITCH_NIGHT_MODE)) break;
       {
         RenderLock lock(*this);
         SETTINGS.screenInverted = !SETTINGS.screenInverted;
