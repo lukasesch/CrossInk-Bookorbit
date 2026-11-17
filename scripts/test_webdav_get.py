@@ -161,9 +161,16 @@ with tempfile.TemporaryDirectory(prefix="crossink-webdav-") as directory:
     source.write_text(FIXTURE + method((ROOT / "src/network/WebDAVHandler.cpp").read_text(),
                                       "void WebDAVHandler::handleGet(WebServer& s)") + TESTS)
     binary = Path(directory) / "test"
+    # The SDK's host SdFat stub declares getName() as void, but SDCardManager.cpp
+    # (SDK 96ce5a7+) uses its size_t result like the real SdFat. Shadow the stub
+    # with a copy that returns 0 until the SDK fixes it (then the replace is a no-op).
+    stubs = Path(directory) / "stubs"
+    stubs.mkdir()
+    (stubs / "SdFat.h").write_text((SDK / "test/host/stubs/SdFat.h").read_text().replace(
+        "void getName(char*, size_t) const {}", "size_t getName(char*, size_t) const { return 0; }"))
     subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-Wall", "-Wextra", "-Werror",
                     "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-                    "-I" + str(SDK / "test/host/stubs"), "-I" + str(SDK / "include"),
+                    "-I" + str(stubs), "-I" + str(SDK / "test/host/stubs"), "-I" + str(SDK / "include"),
                     str(source), str(SDK / "src/SDCardManager.cpp"), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 print("WebDAV GET: binary/empty/large/short-write/disconnect/read-failure/guards passed (ASan/UBSan)")

@@ -28,6 +28,7 @@ Based on CrossInk v2.0.0.
 
 ### Fixed
 
+- BOOX Picco: smoother text and cleaner gray tones. The FreeInk SDK update (to `96ce5a7`) brings the Picco its own anti-aliasing waveform, adjusted light-gray timing, fewer gray artifacts after a fast refresh, less CPU work per display transfer, a short delay before the display powers down, and the corrected power-hold order on wake.
 - Shortcuts set to BookOrbit Sync keep working after this update. CrossInk v2.0.0 gives the numbers they were saved under to Back Home and Home/Reader, so they are carried over the first time the device starts, on every button that offers BookOrbit Sync, the Home key and Quick Actions included.
 - BookOrbit Sync no longer sends a guessed position when the device cannot place the page within the book's structure: the sync stops with an error instead. A guessed position could send another reader to the wrong place, or to the start of the book.
 - Download Languages and Hyphenation Packs work on the X3 and X4. The download failed every time after a minute of waiting: with Wi-Fi on, the reader had too little memory left for the secure connection it opened. It now uses the lighter one that BookOrbit Sync and font downloads already use, as CrossInk v2.0.0-RC also fails there ([CrossInk#927](https://github.com/uxjulia/CrossInk/issues/927)).
