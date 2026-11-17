@@ -284,4 +284,33 @@ class BookOrbitCatalogBrowserActivity final : public Activity {
   // The transfer itself, then the listing it freed is rebuilt.
   void transferBook(int64_t bookId, int64_t fileId, const std::string& finalPath);
   bool preventAutoSleep() override;
+  // Index into the read-status choices (0 all, 1 unread, 2 reading, 3 finished).
+  int readStatusChoice() const;
+  bool listSortsDescending() const;
+
+#if CROSSINK_APP_PICCO_UI
+  // Picco look (T_BookOrbit, T_BookDetail), in BookOrbitCatalogBrowserActivityPicco.cpp.
+  // Root and facet listings keep the shared list; book listings draw 96 px rows with a
+  // Get button, and a book opens its detail screen, which holds the book actions.
+  int piccoDetailRow = -1;       // listing row whose detail screen is open
+  int piccoDetailFocus = -1;     // rocker focus on the detail buttons
+  bool piccoFocusShown = false;  // a touch device shows the row focus once the rocker moved it
+  static void onPiccoEvent(const freeink::ui::ActionEvent& event, void* user);
+  // Header-relative chrome for the list screen; true when it drew the whole screen.
+  bool buildPiccoChrome(UiApp::ScreenType& screen);
+  void buildPiccoBookRows(UiApp::ScreenType& screen, int listTop);
+  void buildPiccoDetail(UiApp::ScreenType& screen);
+  void renderPicco();
+  void openPiccoDetail(int row);
+  void handlePiccoDetailInput(bool backRequested);
+  void activatePiccoDetail(int button);
+  int piccoDetailButtonCount() const;
+#endif
+
+#ifdef SIMULATOR
+ public:
+  // Picco screens: shows a listing without a server (root rows, or a book listing,
+  // optionally with the third row's detail screen open).
+  void simulatorShowListing(std::vector<Entry> rows, int total, bool books, bool detail);
+#endif
 };

@@ -25,6 +25,9 @@
 #include "components/UiAppHelpers.h"
 
 #if CROSSINK_APP_PICCO_UI
+#include <LibraryBuilder.h>
+#include <LibraryIndexFile.h>
+
 #include <cstdio>
 
 #include "activities/ActivityManager.h"
@@ -134,6 +137,7 @@ void SavedItemsHomeActivity::onEnter() {
   app.on(ACTION_ROW, &SavedItemsHomeActivity::onRowEvent, this);
 #if CROSSINK_APP_PICCO_UI
   app.on(ACTION_BOOKS_TAB, &SavedItemsHomeActivity::onBooksTabEvent, this);
+  if (UITheme::isPicco()) enterPicco();
 #endif
   app.setScreen(&SavedItemsHomeActivity::listScreen, this);
   requestUpdate();
@@ -154,7 +158,8 @@ void SavedItemsHomeActivity::loop() {
     return;
   }
 
-  if (!books.empty() && !longPressOpenHandled && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+  if (!books.empty() && !piccoTabFocused && !longPressOpenHandled &&
+      mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
       mappedInput.getHeldTime() >= SAVED_ITEM_DELETE_HOLD_MS) {
     longPressOpenHandled = true;
     showSavedBookActionMenu(selectedIndex, true);
@@ -166,6 +171,12 @@ void SavedItemsHomeActivity::loop() {
       longPressOpenHandled = false;
       return;
     }
+#if CROSSINK_APP_PICCO_UI
+    if (piccoTabFocused) {
+      activityManager.goToLibrary();
+      return;
+    }
+#endif
     if (!books.empty() && selectedIndex >= 0 && selectedIndex < static_cast<int>(books.size())) {
       openSavedItems(selectedIndex);
     }
@@ -188,6 +199,12 @@ void SavedItemsHomeActivity::loop() {
       if (event) return;
     }
   }
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    handlePiccoRocker(listSize);
+    if (listSize == 0) return;
+  }
+#endif
   if (listSize == 0) return;
 
   const auto swipe = mappedInput.wasSwipe();
@@ -202,14 +219,22 @@ void SavedItemsHomeActivity::loop() {
   }
 
   const auto moveSelection = [this, listSize](const int next) {
+#if CROSSINK_APP_PICCO_UI
+    piccoTabFocused = false;
+#endif
     selectedIndex = next;
     topIndex = followListSelection(selectedIndex, topIndex, visibleRows, listSize);
     requestUpdate();
   };
-  buttonNavigator.onNextRelease(
-      [this, listSize, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectedIndex, listSize)); });
-  buttonNavigator.onPreviousRelease(
-      [this, listSize, &moveSelection] { moveSelection(ButtonNavigator::previousIndex(selectedIndex, listSize)); });
+#if CROSSINK_APP_PICCO_UI
+  if (!UITheme::isPicco())
+#endif
+  {
+    buttonNavigator.onNextRelease(
+        [this, listSize, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectedIndex, listSize)); });
+    buttonNavigator.onPreviousRelease(
+        [this, listSize, &moveSelection] { moveSelection(ButtonNavigator::previousIndex(selectedIndex, listSize)); });
+  }
   buttonNavigator.onNextContinuous([this, listSize, &moveSelection] {
     moveSelection(ButtonNavigator::nextPageIndex(selectedIndex, listSize, visibleRows));
   });
@@ -266,6 +291,9 @@ void SavedItemsHomeActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.items = items.data();
   props.count = static_cast<uint16_t>(items.size());
   props.selectedIndex = static_cast<int16_t>(selectedIndex);
+#if CROSSINK_APP_PICCO_UI
+  if (piccoTabFocused) props.selectedIndex = -1;
+#endif
   props.action = ACTION_ROW;
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
   props.labelText = screen.theme().bodyText;
@@ -472,10 +500,38 @@ void SavedItemsHomeActivity::onBooksTabEvent(const fui::ActionEvent&, void* user
   activityManager.goToLibrary();
 }
 
+Rect SavedItemsHomeActivity::piccoHeaderRect() const {
+  return UITheme::getHeaderRect(renderer, UITheme::getInstance().getMetrics().headerHeight);
+}
+
+void SavedItemsHomeActivity::enterPicco() {
+  piccoTabFocused = false;
+  if (libraryBookCount >= 0) return;
+  // Opened from Home rather than the Books tab: count the library for the tab label.
+  if (auto counter = makeUniqueNoThrow<library::LibraryIndexFile>(false)) {
+    if (counter->open(library::libraryIndexPath())) libraryBookCount = counter->bookCount();
+    counter->close();
+  }
+}
+
+void SavedItemsHomeActivity::handlePiccoRocker(const int listSize) {
+  // Focus 0 is the Books tab, then the saved books.
+  const auto step = [this, listSize](const int direction) {
+    const PiccoLibraryLayout::FocusCursor cursor{piccoTabFocused ? 0 : selectedIndex + 1, topIndex};
+    const auto next = PiccoLibraryLayout::rockerStepAround(cursor, direction, 1, listSize, 0, visibleRows);
+    piccoTabFocused = next.focus == 0;
+    if (!piccoTabFocused) selectedIndex = next.focus - 1;
+    topIndex = next.top;
+    requestUpdate();
+  };
+  buttonNavigator.onNextRelease([&step] { step(1); });
+  buttonNavigator.onPreviousRelease([&step] { step(-1); });
+}
+
 void SavedItemsHomeActivity::buildPiccoTabs(UiApp::ScreenType& screen) {
   const PiccoLayout::Box screenBox{0, 0, renderer.getScreenWidth(), renderer.getScreenHeight()};
-  const auto tabs = PiccoLibraryLayout::bandBelow(screenBox, UITheme::getInstance().getMetrics().headerHeight,
-                                                  PiccoTokens::kTabBarHeight);
+  const Rect header = piccoHeaderRect();
+  const auto tabs = PiccoLibraryLayout::libraryBands(screenBox, header.y + header.height).tabs;
   char booksLabel[32];
   if (libraryBookCount >= 0) {
     std::snprintf(booksLabel, sizeof(booksLabel), tr(STR_PICCO_BOOKS_TAB_FORMAT),
@@ -493,6 +549,8 @@ void SavedItemsHomeActivity::buildPiccoTabs(UiApp::ScreenType& screen) {
   screen.frame().hit(fui::Rect{static_cast<int16_t>(booksCell.x), static_cast<int16_t>(booksCell.y),
                                static_cast<int16_t>(booksCell.width), static_cast<int16_t>(booksCell.height)},
                      ACTION_BOOKS_TAB, 0, fui::InputTouch);
+  if (piccoTabFocused)
+    PiccoListUi::drawFocusFrame(renderer, PiccoListUi::toRect(booksCell), PiccoTokens::kTabCellRadius);
   const int top = tabs.bottom() + PiccoLibraryLayout::kBandGap;
   screen.setContentMarginFromScreen(
       fui::Insets{static_cast<int16_t>(top), 0,
@@ -504,8 +562,7 @@ void SavedItemsHomeActivity::renderPicco() {
   HeaderChrome chrome;
   chrome.leading = HeaderLeading::Back;
   chrome.title = tr(STR_LIBRARY);
-  GUI.drawHeaderChrome(renderer, Rect{0, 0, renderer.getScreenWidth(), UITheme::getInstance().getMetrics().headerHeight},
-                       chrome);
+  GUI.drawHeaderChrome(renderer, piccoHeaderRect(), chrome);
   uiReady = false;
   renderUiApp(app, uiTarget);
   uiReady = true;

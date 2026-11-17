@@ -10,6 +10,8 @@
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
+struct Rect;
+
 struct SavedBookEntry {
   std::string bookTitle;
   std::string bookAuthor;
@@ -44,12 +46,16 @@ class SavedItemsHomeActivity final : public Activity {
   int visibleRows = 1;
   int topIndex = 0;
   int libraryBookCount = -1;
+  bool piccoTabFocused = false;  // Picco: rocker focus on the Books tab
 
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
 #if CROSSINK_APP_PICCO_UI
   // Picco: this screen is the Library's Saved tab (T_LibrarySaved).
   static void onBooksTabEvent(const freeink::ui::ActionEvent& event, void* user);
+  void enterPicco();
+  Rect piccoHeaderRect() const;
+  void handlePiccoRocker(int listSize);
   void buildPiccoTabs(UiApp::ScreenType& screen);
   void renderPicco();
 #endif

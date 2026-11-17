@@ -110,6 +110,10 @@ class FileBrowserActivity final : public Activity {
   // FileBrowserActivityPicco.cpp. Value 1 = USB Drive, 2 = Wi-Fi transfer.
   void buildPiccoChrome(UiApp::ScreenType& screen);
   void openPiccoTransfer(int target);
+  // Rocker focus on the transfer pair: 0 none, else 1-based button (left to right).
+  int piccoTransferFocus = 0;
+  static int piccoTransferCount();
+  static int piccoTransferTarget(int button);
 #endif
   void selectDirectory();
   void activateSelected();

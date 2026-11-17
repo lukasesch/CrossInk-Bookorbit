@@ -41,6 +41,7 @@
 #include "components/icons/listIcons.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoLibraryLayout.h"
 #include "components/picco/PiccoPageIndicator.h"
 #include "components/picco/PiccoTokens.h"
 #endif
@@ -1289,6 +1290,10 @@ void FileBrowserActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (longPressConfirmHandled) {
       longPressConfirmHandled = false;
+#if CROSSINK_APP_PICCO_UI
+    } else if (piccoTransferFocus > 0) {
+      openPiccoTransfer(piccoTransferTarget(piccoTransferFocus - 1));
+#endif
     } else {
       showFileSelection = true;
       activateSelected();
@@ -1306,6 +1311,24 @@ void FileBrowserActivity::loop() {
     }
   }
 
+#if CROSSINK_APP_PICCO_UI
+  // The rocker walks the rows, then the transfer pair below them.
+  const bool piccoRocker = UITheme::isPicco() && mode == Mode::Books;
+  const auto piccoStep = [this, listSize](const int direction) {
+    const PiccoLibraryLayout::FocusCursor cursor{
+        piccoTransferFocus > 0 ? listSize + piccoTransferFocus - 1 : static_cast<int>(selectorIndex), 0};
+    return PiccoLibraryLayout::rockerStepAround(cursor, direction, 0, listSize, piccoTransferCount(), 1).focus;
+  };
+  if (piccoRocker && listSize <= 0) {
+    const auto focusTransfer = [this, &piccoStep](const int direction) {
+      piccoTransferFocus = piccoStep(direction) + 1;
+      requestUpdate();
+    };
+    buttonNavigator.onNextRelease([&focusTransfer] { focusTransfer(1); });
+    buttonNavigator.onPreviousRelease([&focusTransfer] { focusTransfer(-1); });
+    return;
+  }
+#endif
   if (listSize <= 0) return;
 
   // Swipes scroll the viewport; the selection stays put and button navigation
@@ -1341,6 +1364,9 @@ void FileBrowserActivity::loop() {
     {
       RenderLock lock(*this);
       swipeDelete.close();
+#if CROSSINK_APP_PICCO_UI
+      piccoTransferFocus = 0;
+#endif
       selectorIndex = static_cast<size_t>(index);
       showFileSelection = true;
       if (static_cast<size_t>(listSize) > MAX_VIRTUAL_LIST_ENTRIES) {
@@ -1388,6 +1414,22 @@ void FileBrowserActivity::loop() {
     buttonNavigator.onRelease({MappedInputManager::Button::Up}, movePrevious);
     buttonNavigator.onContinuous({MappedInputManager::Button::Down}, pageNext);
     buttonNavigator.onContinuous({MappedInputManager::Button::Up}, pagePrevious);
+#if CROSSINK_APP_PICCO_UI
+  } else if (piccoRocker) {
+    const auto step = [this, listSize, &piccoStep, &moveSelection](const int direction) {
+      const int focus = piccoStep(direction);
+      if (focus < listSize) {
+        moveSelection(focus);
+        return;
+      }
+      piccoTransferFocus = focus - listSize + 1;
+      requestUpdate();
+    };
+    buttonNavigator.onNextRelease([&step] { step(1); });
+    buttonNavigator.onPreviousRelease([&step] { step(-1); });
+    buttonNavigator.onNextContinuous(pageNext);
+    buttonNavigator.onPreviousContinuous(pagePrevious);
+#endif
   } else {
     buttonNavigator.onNextRelease(moveNext);
     buttonNavigator.onPreviousRelease(movePrevious);
@@ -1633,6 +1675,9 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
     props.topIndex = 0;
     props.nav = nullptr;
   }
+#if CROSSINK_APP_PICCO_UI
+  if (piccoTransferFocus > 0) props.selectedIndex = -1;
+#endif
   const auto reveal = swipeDelete.reveal(ACTION_DELETE);
   props.reveal = &reveal;
   props.action = ACTION_ROW;

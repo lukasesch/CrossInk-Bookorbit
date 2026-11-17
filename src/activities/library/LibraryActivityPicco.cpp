@@ -53,26 +53,22 @@ constexpr int SORT_OPTION_COUNT = 7;
 constexpr int SORT_FOCUS_COUNT = SORT_OPTION_COUNT + 2;
 constexpr int kSmallFont = SMALL_FONT_ID;
 constexpr int kBodyFont = UI_10_FONT_ID;
+constexpr int kBookFont = LITERATA_10_FONT_ID;  // grid cover text and titles (board: Literata)
 
 Box screenBox(const GfxRenderer& renderer) { return Box{0, 0, renderer.getScreenWidth(), renderer.getScreenHeight()}; }
 
+// The shared header source: panel insets and calibration move its top.
 Rect headerRect(const GfxRenderer& renderer) {
-  return Rect{0, 0, renderer.getScreenWidth(), UITheme::getInstance().getMetrics().headerHeight};
+  return UITheme::getHeaderRect(renderer, UITheme::getInstance().getMetrics().headerHeight);
 }
 
-// Bands below the header: tabs, then the sort row, then the books.
-Box tabsBox(const GfxRenderer& renderer) {
-  return PiccoLibraryLayout::bandBelow(screenBox(renderer), headerRect(renderer).height, PiccoTokens::kTabBarHeight);
+PiccoLibraryLayout::LibraryBands bands(const GfxRenderer& renderer) {
+  const Rect header = headerRect(renderer);
+  return PiccoLibraryLayout::libraryBands(screenBox(renderer), header.y + header.height);
 }
-Box sortBand(const GfxRenderer& renderer) {
-  return PiccoLibraryLayout::bandBelow(screenBox(renderer), tabsBox(renderer).bottom(), PiccoTokens::kTabBarHeight);
-}
-Box bodyBox(const GfxRenderer& renderer) {
-  const Box screen = screenBox(renderer);
-  const int top = sortBand(renderer).bottom() + PiccoLibraryLayout::kBandGap;
-  return Box{screen.x + PiccoTokens::kGutter, top, screen.width - 2 * PiccoTokens::kGutter,
-             PiccoLayout::maxOf(0, PiccoLayout::listBottomLimit(screen) - top)};
-}
+Box tabsBox(const GfxRenderer& renderer) { return bands(renderer).tabs; }
+Box sortBand(const GfxRenderer& renderer) { return bands(renderer).sort; }
+Box bodyBox(const GfxRenderer& renderer) { return bands(renderer).body; }
 Box viewToggleBox(const GfxRenderer& renderer) {
   const Box band = sortBand(renderer);
   const int width = PiccoLibraryLayout::segmentedWidth(2, PiccoLibraryLayout::kViewToggleCell);
@@ -80,13 +76,15 @@ Box viewToggleBox(const GfxRenderer& renderer) {
 }
 
 // Board order (T_LibrarySort) -> the Library's sort values.
-constexpr uint8_t kSortForOption[SORT_OPTION_COUNT] = {4 /*RecentlyRead*/, 0 /*DateAdded*/, 1 /*Title*/,
-                                                       2 /*AuthorLast*/,   3 /*AuthorFirst*/, 5 /*Series*/,
-                                                       6 /*Genre*/};
-constexpr StrId kSortLabels[SORT_OPTION_COUNT] = {
-    StrId::STR_LIBRARY_RECENTLY_OPENED,   StrId::STR_LIBRARY_DATE_ADDED, StrId::STR_TITLE,
-    StrId::STR_LIBRARY_AUTHOR_LAST_NAME,  StrId::STR_LIBRARY_AUTHOR_FIRST_NAME,
-    StrId::STR_LIBRARY_SERIES,            StrId::STR_LIBRARY_GENRE};
+constexpr uint8_t kSortForOption[SORT_OPTION_COUNT] = {
+    4 /*RecentlyRead*/, 0 /*DateAdded*/, 1 /*Title*/, 2 /*AuthorLast*/, 3 /*AuthorFirst*/, 5 /*Series*/, 6 /*Genre*/};
+constexpr StrId kSortLabels[SORT_OPTION_COUNT] = {StrId::STR_LIBRARY_RECENTLY_OPENED,
+                                                  StrId::STR_LIBRARY_DATE_ADDED,
+                                                  StrId::STR_TITLE,
+                                                  StrId::STR_LIBRARY_AUTHOR_LAST_NAME,
+                                                  StrId::STR_LIBRARY_AUTHOR_FIRST_NAME,
+                                                  StrId::STR_LIBRARY_SERIES,
+                                                  StrId::STR_LIBRARY_GENRE};
 
 int optionForSort(const uint8_t sort) {
   for (int i = 0; i < SORT_OPTION_COUNT; ++i) {
@@ -170,7 +168,9 @@ bool LibraryActivity::activatePiccoControl(const int control) {
 }
 
 void LibraryActivity::openSavedTab() {
-  auto saved = makeUniqueNoThrow<SavedItemsHomeActivity>(renderer, mappedInput, libraryBookCount);
+  // The count the Books tab shows, so the Saved tab can label it the same way.
+  const int books = libraryBookCount >= 0 ? libraryBookCount : rowCount();
+  auto saved = makeUniqueNoThrow<SavedItemsHomeActivity>(renderer, mappedInput, books);
   if (!saved) {
     LOG_ERR("LIB", "Cannot allocate Saved tab");
     return;
@@ -342,7 +342,8 @@ void LibraryActivity::buildPiccoScreen(UiApp::ScreenType& screen) {
     if (mappedInput.hasTouchHardware()) hit(screen, orderBox, ACTION_CONTROL, CONTROL_ORDER);
     if (focusShown && selection == CONTROL_ORDER) {
       PiccoListUi::drawFocusFrame(
-          renderer, Rect{middleX - 8, centerY - PiccoTokens::kActionHeight / 2, middleW + 16, PiccoTokens::kActionHeight},
+          renderer,
+          Rect{middleX - 8, centerY - PiccoTokens::kActionHeight / 2, middleW + 16, PiccoTokens::kActionHeight},
           PiccoTokens::kSmallRadius);
     }
   }
@@ -379,10 +380,9 @@ void LibraryActivity::buildPiccoScreen(UiApp::ScreenType& screen) {
                    screen);
     return;
   }
-  screen.setContentMarginFromScreen(
-      fui::Insets{static_cast<int16_t>(body.y), 0,
-                  static_cast<int16_t>(renderer.getScreenHeight() - PiccoLayout::listBottomLimit(screenBox(renderer))),
-                  0});
+  screen.setContentMarginFromScreen(fui::Insets{
+      static_cast<int16_t>(body.y), 0,
+      static_cast<int16_t>(renderer.getScreenHeight() - PiccoLayout::listBottomLimit(screenBox(renderer))), 0});
   buildBookList(screen);
 }
 
@@ -424,12 +424,12 @@ void LibraryActivity::buildPiccoGrid(const fui::Rect& areaRect, UiApp::ScreenTyp
       const int innerW = cover.width - 2 * kPadX;
       renderer.fillRect(innerX, cover.y + kPadY, innerW, 1, true);
       renderer.fillRect(innerX, cover.y + kPadY + kRuleGap, innerW, 1, true);
-      const auto lines = renderer.wrappedText(kBodyFont, rowScratch.title.c_str(), innerW, 3, EpdFontFamily::BOLD);
-      const int lineH = renderer.getLineHeight(kBodyFont);
+      const auto lines = renderer.wrappedText(kBookFont, rowScratch.title.c_str(), innerW, 3);
+      const int lineH = renderer.getLineHeight(kBookFont);
       int y = cover.y + (cover.height - static_cast<int>(lines.size()) * lineH) / 2;
       for (const auto& line : lines) {
-        const int w = renderer.getTextWidth(kBodyFont, line.c_str(), EpdFontFamily::BOLD);
-        renderer.drawText(kBodyFont, innerX + (innerW - w) / 2, y, line.c_str(), true, EpdFontFamily::BOLD);
+        const int w = renderer.getTextWidth(kBookFont, line.c_str());
+        renderer.drawText(kBookFont, innerX + (innerW - w) / 2, y, line.c_str());
         y += lineH;
       }
       if (!rowScratch.author.empty()) {
@@ -445,9 +445,8 @@ void LibraryActivity::buildPiccoGrid(const fui::Rect& areaRect, UiApp::ScreenTyp
     // Title and progress under the cover.
     const int lineH = renderer.getLineHeight(kSmallFont);
     const int titleY = cover.bottom() + PiccoLibraryLayout::kGridTitleGap;
-    const std::string title =
-        renderer.truncatedText(kSmallFont, rowScratch.title.c_str(), cell.width, EpdFontFamily::BOLD);
-    renderer.drawText(kSmallFont, cell.x, titleY, title.c_str(), true, EpdFontFamily::BOLD);
+    const std::string title = renderer.truncatedText(kBookFont, rowScratch.title.c_str(), cell.width);
+    renderer.drawText(kBookFont, cell.x, titleY, title.c_str());
     const float percent = gridPercentPage == gridPageStart ? gridPagePercent[slot] : -1.0f;
     const bool finished = isFinishedRow(row);
     std::string state;
@@ -459,7 +458,7 @@ void LibraryActivity::buildPiccoGrid(const fui::Rect& areaRect, UiApp::ScreenTyp
       state = tr(STR_PICCO_BOOK_NEW);
     }
     const int stateW = renderer.getTextWidth(kSmallFont, state.c_str());
-    const int progressY = titleY + lineH + 2;
+    const int progressY = titleY + renderer.getLineHeight(kBookFont) + 2;
     renderer.drawText(kSmallFont, cell.right() - stateW, progressY, state.c_str());
     const int permille = finished ? 1000 : RecentBookProgress::hasPercent(percent) ? static_cast<int>(percent * 10) : 0;
     PiccoProgress::draw(renderer, Rect{cell.x, progressY, std::max(0, cell.width - stateW - 8), lineH}, permille);
@@ -477,7 +476,7 @@ void LibraryActivity::buildPiccoSortScreen(UiApp::ScreenType& screen) {
   const int left = PiccoTokens::kGutter;
   const int width = screenArea.width - 2 * PiccoTokens::kGutter;
   const int labelH = renderer.getLineHeight(kSmallFont);
-  int y = header.height + PiccoTokens::kSectionFirstAbove;
+  int y = header.y + header.height + PiccoTokens::kSectionFirstAbove;
   GUI.drawSubHeader(renderer, Rect{0, y, screenArea.width, labelH}, tr(STR_PICCO_SORT_SECTION));
   y += labelH + PiccoTokens::kSectionBelow;
 

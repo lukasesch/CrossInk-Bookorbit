@@ -55,6 +55,9 @@ using Entry = BookOrbitCatalogBrowserActivity::Entry;
 
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_CONTROL = 2;
+#if CROSSINK_APP_PICCO_UI
+constexpr fui::ActionId ACTION_PICCO = 3;  // BookOrbitCatalogBrowserActivityPicco.cpp
+#endif
 // A server book list's header controls on touch devices, sized and spaced like the Library's.
 constexpr int HEADER_CONTROL_SIZE = 44;
 constexpr int HEADER_CONTROL_GAP = 10;
@@ -296,6 +299,10 @@ void BookOrbitCatalogBrowserActivity::onEnter() {
   applySharedUiTheme(app, uiTarget);
   app.on(ACTION_ROW, &BookOrbitCatalogBrowserActivity::onRowEvent, this);
   if (mappedInput.hasTouchHardware()) app.on(ACTION_CONTROL, &BookOrbitCatalogBrowserActivity::onControlEvent, this);
+#if CROSSINK_APP_PICCO_UI
+  piccoDetailRow = -1;
+  if (UITheme::isPicco()) app.on(ACTION_PICCO, &BookOrbitCatalogBrowserActivity::onPiccoEvent, this);
+#endif
   app.setScreen(&BookOrbitCatalogBrowserActivity::listScreen, this);
 
   entries.clear();
@@ -805,6 +812,9 @@ void BookOrbitCatalogBrowserActivity::setListLetters(const std::vector<BookOrbit
 }
 
 bool BookOrbitCatalogBrowserActivity::sectionsShown() const {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) return false;  // Picco book rows have a fixed height
+#endif
   return SETTINGS.libraryListExpanded != 0 && navLevel == NavLevel::Books && !listIsLocal;
 }
 
@@ -1165,6 +1175,9 @@ void BookOrbitCatalogBrowserActivity::reloadListing(const BookOrbitBookQuery& qu
   requestUpdate();
 }
 
+int BookOrbitCatalogBrowserActivity::readStatusChoice() const { return readStatusChoiceIndex(listQuery.readStatus); }
+bool BookOrbitCatalogBrowserActivity::listSortsDescending() const { return sortsDescending(listQuery); }
+
 std::string BookOrbitCatalogBrowserActivity::headerTitle() const {
   if (navLevel == NavLevel::FacetList && !facetTitle.empty()) return facetTitle;
   if (navLevel != NavLevel::Books || listTitle.empty()) return tr(STR_BOOKORBIT_CATALOG);
@@ -1514,6 +1527,12 @@ void BookOrbitCatalogBrowserActivity::activateSelected() {
       launchSearch();
       break;
     case EntryType::BOOK:
+#if CROSSINK_APP_PICCO_UI
+      if (UITheme::isPicco()) {
+        openPiccoDetail(selectorIndex);
+        break;
+      }
+#endif
       if (entry.onDevice) {
         openLocalBook(entry.path);
       } else {
@@ -1535,6 +1554,13 @@ void BookOrbitCatalogBrowserActivity::openLocalBook(const std::string& path) {
 void BookOrbitCatalogBrowserActivity::showBookActionMenu(const bool ignoreInitialConfirmRelease) {
   const Entry* selected = entryAt(selectorIndex);
   if (!selected || selected->type != EntryType::BOOK) return;
+#if CROSSINK_APP_PICCO_UI
+  // Picco: the book detail screen holds the same actions (T_BookDetail).
+  if (UITheme::isPicco()) {
+    openPiccoDetail(selectorIndex);
+    return;
+  }
+#endif
   const Entry& entry = *selected;
 
   std::vector<FileBrowserActionActivity::MenuItem> items;
@@ -1673,6 +1699,16 @@ void BookOrbitCatalogBrowserActivity::loop() {
       if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) longPressFired = false;
       return;
     }
+#if CROSSINK_APP_PICCO_UI
+    if (piccoDetailRow >= 0) {
+      handlePiccoDetailInput(backRequested);
+      return;
+    }
+    if (UITheme::isPicco() && !piccoFocusShown) {
+      for (const auto button : ButtonNavigator::getNextButtons()) piccoFocusShown |= mappedInput.wasPressed(button);
+      for (const auto button : ButtonNavigator::getPreviousButtons()) piccoFocusShown |= mappedInput.wasPressed(button);
+    }
+#endif
     // Holding Confirm on a catalog book opens its action menu instead of acting.
     const Entry* selected = entryAt(selectorIndex);
     if (selected && selected->type == EntryType::BOOK && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
@@ -1842,14 +1878,21 @@ void BookOrbitCatalogBrowserActivity::listScreen(UiApp::ScreenType& screen, void
 }
 
 void BookOrbitCatalogBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  // Content below the compact header band, above the button hints. The header
-  // is painted by render(), so the app must not claim its rows.
-  screen.setContentMargin(fui::Insets{static_cast<int16_t>(CompactHeader::contentTop(metrics)), 0,
-                                      static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    if (buildPiccoChrome(screen)) return;
+  } else
+#endif
+  {
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    // Content below the compact header band, above the button hints. The header
+    // is painted by render(), so the app must not claim its rows.
+    screen.setContentMargin(fui::Insets{static_cast<int16_t>(CompactHeader::contentTop(metrics)), 0,
+                                        static_cast<int16_t>(metrics.buttonHintsHeight), 0});
 
-  if (mappedInput.hasTouchHardware() && listOptionsAvailable()) {
-    addListHeaderControls(screen, renderer, sortsDescending(listQuery));
+    if (mappedInput.hasTouchHardware() && listOptionsAvailable()) {
+      addListHeaderControls(screen, renderer, sortsDescending(listQuery));
+    }
   }
   // A filter that matches nothing leaves the header controls to undo it; render() says
   // the listing is empty.
@@ -1946,6 +1989,12 @@ void BookOrbitCatalogBrowserActivity::buildListScreen(UiApp::ScreenType& screen)
 }
 
 void BookOrbitCatalogBrowserActivity::render(RenderLock&&) {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    renderPicco();
+    return;
+  }
+#endif
   renderer.clearScreen();
 
   const auto pageWidth = renderer.getScreenWidth();

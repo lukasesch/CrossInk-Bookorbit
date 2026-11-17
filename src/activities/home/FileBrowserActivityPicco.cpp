@@ -96,8 +96,8 @@ void FileBrowserActivity::buildPiccoChrome(UiApp::ScreenType& screen) {
   Box wifi = PiccoLibraryLayout::transferButton(screenBox, 1);
 #if CROSSINK_APP_CAP_USB_DRIVE
   const Box usb = PiccoLibraryLayout::transferButton(screenBox, 0);
-  PiccoListUi::drawOutlineButton(renderer, PiccoListUi::toRect(usb), tr(STR_PICCO_USB_TRANSFER), &icon_usb_24, false,
-                                 true);
+  PiccoListUi::drawOutlineButton(renderer, PiccoListUi::toRect(usb), tr(STR_PICCO_USB_TRANSFER), &icon_usb_24,
+                                 piccoTransferFocus == 1, true);
   screen.frame().hit(fui::Rect{static_cast<int16_t>(usb.x), static_cast<int16_t>(usb.y),
                                static_cast<int16_t>(usb.width), static_cast<int16_t>(usb.height)},
                      ACTION_TRANSFER, TRANSFER_USB, fui::InputTouch);
@@ -106,15 +106,21 @@ void FileBrowserActivity::buildPiccoChrome(UiApp::ScreenType& screen) {
   wifi.x = PiccoLibraryLayout::transferButton(screenBox, 0).x;
 #endif
   PiccoListUi::drawOutlineButton(renderer, PiccoListUi::toRect(wifi), tr(STR_PICCO_WIFI_TRANSFER), &icon_wifi_24,
-                                 false, true);
+                                 piccoTransferFocus == piccoTransferCount(), true);
   screen.frame().hit(fui::Rect{static_cast<int16_t>(wifi.x), static_cast<int16_t>(wifi.y),
                                static_cast<int16_t>(wifi.width), static_cast<int16_t>(wifi.height)},
                      ACTION_TRANSFER, TRANSFER_WIFI, fui::InputTouch);
 
   const int listTop = pathBand.bottom() + PiccoLibraryLayout::kBandGap;
   const int listBottom = wifi.y - PiccoLibraryLayout::kBandGap;
-  screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(listTop), 0,
-                                                static_cast<int16_t>(screenBox.height - listBottom), 0});
+  screen.setContentMarginFromScreen(
+      fui::Insets{static_cast<int16_t>(listTop), 0, static_cast<int16_t>(screenBox.height - listBottom), 0});
+}
+
+int FileBrowserActivity::piccoTransferCount() { return CROSSINK_APP_CAP_USB_DRIVE ? 2 : 1; }
+
+int FileBrowserActivity::piccoTransferTarget(const int button) {
+  return piccoTransferCount() == 2 && button == 0 ? TRANSFER_USB : TRANSFER_WIFI;
 }
 
 void FileBrowserActivity::openPiccoTransfer(const int target) {

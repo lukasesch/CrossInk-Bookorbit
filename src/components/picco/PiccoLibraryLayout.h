@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PiccoLayout.h"
+#include "PiccoPagedList.h"
 #include "PiccoTokens.h"
 
 // Pure geometry for the Library, Files and BookOrbit screens (T_Library, T_LibrarySort,
@@ -54,8 +55,26 @@ constexpr int segmentAt(const Box& outer, const int count, const int px, const i
 
 // Gutter-to-gutter band of `height` starting kBandGap below `top`.
 constexpr Box bandBelow(const Box& screen, const int top, const int height) {
-  return Box{screen.x + PiccoTokens::kGutter, top + kBandGap, PiccoLayout::maxOf(0, screen.width - 2 * PiccoTokens::kGutter),
-             height};
+  return Box{screen.x + PiccoTokens::kGutter, top + kBandGap,
+             PiccoLayout::maxOf(0, screen.width - 2 * PiccoTokens::kGutter), height};
+}
+
+// Library bands under the header: tabs, sort row, body (down to the list bottom limit).
+// headerBottom comes from UITheme::getHeaderRect (panel insets move it).
+struct LibraryBands {
+  Box tabs;
+  Box sort;
+  Box body;
+};
+
+constexpr LibraryBands libraryBands(const Box& screen, const int headerBottom) {
+  LibraryBands out{};
+  out.tabs = bandBelow(screen, headerBottom, PiccoTokens::kTabBarHeight);
+  out.sort = bandBelow(screen, out.tabs.bottom(), PiccoTokens::kTabBarHeight);
+  const int top = out.sort.bottom() + kBandGap;
+  out.body = Box{screen.x + PiccoTokens::kGutter, top, PiccoLayout::maxOf(0, screen.width - 2 * PiccoTokens::kGutter),
+                 PiccoLayout::maxOf(0, PiccoLayout::listBottomLimit(screen) - top)};
+  return out;
 }
 
 // Outlined dropdown button: label, gap, trailing chevron; vertically centred in its band.
@@ -108,6 +127,88 @@ constexpr Box transferButton(const Box& screen, const int index) {
 constexpr int rowsBetween(const int top, const int bottom, const int rowStep) {
   if (rowStep <= 0 || bottom <= top) return 0;
   return (bottom - top) / rowStep;
+}
+
+// ---- BookOrbit catalog (T_BookOrbit) and book detail (T_BookDetail) -----------------------
+
+constexpr int kCatalogRow = 96;
+constexpr int kCatalogCoverW = 56;
+constexpr int kCatalogCoverH = 80;
+constexpr int kCatalogCoverGap = 14;
+constexpr int kCatalogActionW = 92;
+constexpr int kCatalogActionGap = 12;
+
+struct CatalogRow {
+  Box band;    // hairline on its top edge
+  Box cover;   // initial placeholder
+  Box text;    // title / author / meta column
+  Box action;  // Get button or state, kActionHeight tall
+};
+
+constexpr CatalogRow catalogRow(const Box& list, const int slot) {
+  using namespace PiccoTokens;
+  CatalogRow r{};
+  r.band = Box{list.x, list.y + slot * kCatalogRow, list.width, kCatalogRow};
+  const int centerY = r.band.y + kCatalogRow / 2;
+  r.cover = PiccoLayout::centeredBox(list.x, centerY, kCatalogCoverW, kCatalogCoverH);
+  r.action = PiccoLayout::centeredBox(list.right() - kCatalogActionW, centerY, kCatalogActionW, kActionHeight);
+  const int textX = r.cover.right() + kCatalogCoverGap;
+  r.text = Box{textX, r.band.y, PiccoLayout::maxOf(0, r.action.x - kCatalogActionGap - textX), kCatalogRow};
+  return r;
+}
+
+constexpr int kDetailCoverW = 128;
+constexpr int kDetailCoverH = 192;
+constexpr int kDetailCoverGap = 20;
+
+struct BookDetailLayout {
+  Box cover;
+  Box text;
+  Box rule;          // hairline under the cover band
+  Box primary;       // the screen's one black button
+  Box secondary[2];  // outlined pair under it
+};
+
+constexpr BookDetailLayout bookDetail(const Box& screen, const int headerBottom) {
+  using namespace PiccoTokens;
+  BookDetailLayout d{};
+  const int left = screen.x + kGutter;
+  const int width = PiccoLayout::maxOf(0, screen.width - 2 * kGutter);
+  d.cover = Box{left, headerBottom + kBandGap, kDetailCoverW, kDetailCoverH};
+  const int textX = d.cover.right() + kDetailCoverGap;
+  d.text = Box{textX, d.cover.y, PiccoLayout::maxOf(0, left + width - textX), kDetailCoverH};
+  d.rule = Box{left, d.cover.bottom() + kBandGap, width, kHairline};
+  d.primary = Box{left, d.rule.bottom() + kBandGap, width, kActionHeight};
+  const int half = (width - kGroupGap) / 2;
+  d.secondary[0] = Box{left, d.primary.bottom() + kGroupGap, half, kActionHeight};
+  d.secondary[1] = Box{left + width - half, d.primary.bottom() + kGroupGap, half, kActionHeight};
+  return d;
+}
+
+// ---- Rocker over controls around a paged list ----------------------------------------------
+
+// Focus index space: [0, leading) controls above the list, then the rows, then `trailing`
+// controls below it. One step wraps at both ends; the viewport flips a page only when the
+// focus lands on a row outside it (PiccoPagedList::rockerStep) and stays put on controls.
+struct FocusCursor {
+  int focus = 0;
+  int top = 0;
+};
+
+constexpr FocusCursor rockerStepAround(const FocusCursor cursor, const int direction, const int leading, const int rows,
+                                       const int trailing, const int rowsPerPage) {
+  const int total = leading + rows + trailing;
+  if (total <= 0) return FocusCursor{};
+  int focus = cursor.focus + (direction > 0 ? 1 : -1);
+  if (focus >= total) focus = 0;
+  if (focus < 0) focus = total - 1;
+  int top = cursor.top;
+  const int row = focus - leading;
+  const int perPage = PiccoLayout::maxOf(1, rowsPerPage);
+  if (row >= 0 && row < rows && (row < top || row >= top + perPage)) {
+    top = PiccoPagedList::pageTopFor(row, perPage, rows);
+  }
+  return FocusCursor{focus, top};
 }
 
 }  // namespace PiccoLibraryLayout
