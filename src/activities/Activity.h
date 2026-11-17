@@ -17,6 +17,7 @@
 #include "util/ScreenshotInfo.h"
 
 struct PendingOverlayResume;
+struct ReaderSheetDetails;
 
 class Activity {
   friend class ActivityManager;
@@ -114,6 +115,8 @@ class Activity {
   virtual std::string getCurrentBookPath() const { return {}; }
   virtual std::string getCurrentBookTitle() const { return {}; }
   virtual bool getFrontlightPanelBookDetails(FrontlightPanelBookDetails&) { return false; }
+  // Picco reader sheet: an open reader describes its book and menu. False = light-only sheet.
+  virtual bool fillReaderSheetDetails(ReaderSheetDetails&) { return false; }
   virtual bool isEpubReaderActivity() const { return false; }
   virtual std::unique_ptr<Activity> createFrontlightReadingStatsActivity() { return {}; }
   virtual void onFrontlightPanelOpened() {}

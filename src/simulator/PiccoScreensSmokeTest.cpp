@@ -17,6 +17,7 @@
 #include "AppCapabilities.h"
 #include "BookOrbitCredentialStore.h"
 #include "CrossPointSettings.h"
+#include "PiccoScreens3B.h"
 #include "PiccoScreens4B.h"
 #include "activities/ActivityManager.h"
 #include "activities/boot_sleep/SleepActivity.h"
@@ -266,17 +267,11 @@ struct PiccoScreensSmokeTest {
       expect("EpubReader", "light panel dismissal");
       return 0;
     });
-    addSwipe(width / 2, height * 2 / 3, height / 3);
-    steps.push_back([this] {
-      expect("EpubReaderDrawer", "reader swipe up");
-      renderAndCapture("reader-drawer");
-      return 0;
-    });
-    addBack();
-    steps.push_back([this] {
-      expect("EpubReader", "drawer dismissal");
-      return 0;
-    });
+    // Under the Picco UI the sheet replaces the drawer; swipe up goes Home (PiccoScreens3B).
+    addPiccoSheetScreens(
+        {&steps, [this](const std::string& name) { renderAndCapture(name); },
+         [this](const char* activity, const char* what) { expect(activity, what); }, SETTLE_TICKS, BOOK_OPEN_TICKS},
+        bookPath);
 
     // Home with the book just read, and its light panel (top-edge swipe down).
     steps.push_back([] {

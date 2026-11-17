@@ -5,6 +5,7 @@
 #include <string>
 
 class Activity;
+struct ReaderSheetDetails;
 
 enum class FrontlightPanelAction : uint8_t {
   None = 0,
@@ -51,6 +52,23 @@ struct FrontlightPanelBookDetails {
 struct FrontlightDrawerState {
   int8_t selectedAction = 0;
   bool syncDialogOpen = false;
+  // Picco reader sheet: pane, tab and rocker focus (-1 = no ring).
+  uint8_t sheetPane = 0;
+  uint8_t sheetTab = 0;
+  int8_t sheetFocus = -1;
+};
+
+// What the Picco reader sheet asks its reader to run once it has closed.
+struct ReaderSheetRequest {
+  bool fromSheet = false;
+  int16_t action = -1;    // the reader's own menu action; -1 = none
+  int32_t value = -1;     // Go to percent (x100) or auto page turn seconds
+  uint32_t page = 0;      // Go to stable page
+  bool reopen = false;    // open the sheet again after the action
+  bool openMenu = false;  // XTC: today's menu list
+  bool settingsChanged = false;
+  uint8_t changeMask = 0;
+  uint8_t orientation = 0;
 };
 
 struct FrontlightPanelResult {
@@ -59,6 +77,7 @@ struct FrontlightPanelResult {
   bool activeEpub = false;
   bool ttfRenderingChanged = false;
   std::string bookPath;
+  ReaderSheetRequest sheet{};
 };
 
 struct FrontlightPanelContext {
@@ -74,4 +93,6 @@ struct FrontlightPanelContext {
   FrontlightPanelBookDetails bookDetails;
   std::unique_ptr<Activity> readingStatsActivity;
   FrontlightDrawerState drawerState{};
+  // Picco reader sheet data from the reader; null shows the light-only sheet.
+  std::shared_ptr<ReaderSheetDetails> readerSheet;
 };

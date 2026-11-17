@@ -1,4 +1,7 @@
 #include "EpubReaderActivity.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/sheet/ReaderSheetDetails.h"
+#endif
 
 #include <Arduino.h>
 #include <BidiUtils.h>
@@ -2919,9 +2922,14 @@ void EpubReaderActivity::onExit() {
 
 void EpubReaderActivity::openReaderMenu() {
   switch (readerMenuKind()) {
-    case ReaderMenuKind::Drawer:
-    // The sheet arrives in Phase 3b; nothing selects it yet.
     case ReaderMenuKind::Sheet:
+      // The sheet is portrait only; landscape keeps the drawer.
+      if (renderer.getScreenHeight() > renderer.getScreenWidth() && activityManager.openFrontlightPanelFrom(*this)) {
+        return;
+      }
+      openReaderDrawer();
+      return;
+    case ReaderMenuKind::Drawer:
       openReaderDrawer();
       return;
   }
@@ -3069,54 +3077,64 @@ void EpubReaderActivity::openReaderDrawer() {
     }
     touchReaderDrawerState =
         menu->reopenDrawer ? menu->drawerState : initialReaderDrawerState(mappedInput.hasTouchHardware());
-    applyOrientation(menu->orientation);
-    if (menu->settingsChanged && hasReaderSettingsChange(menu->changeMask, ReaderSettingsChangeMask::Relayout)) {
-      ensureReaderSdFontLoaded(renderer, epub.get());
-      RenderLock lock(*this);
-      prepareCurrentSectionForRelayout();
-      section.reset();  // Force re-layout with changed reader settings
-    }
-    resumeReadingPaceTimer("reader_menu_return");
-    if (!result.isCancelled) {
-      if (menu->action == static_cast<int>(EpubReaderMenuAction::GO_TO_PERCENT) && menu->drawerValue >= 0) {
-        // The touch drawer's Percent pane reports centipercent (see EpubReaderDrawerActivity::percent).
-        jumpToPercent(static_cast<float>(menu->drawerValue) / 100.0f);
-        return;
-      }
-      if (menu->action == static_cast<int>(EpubReaderMenuAction::GO_TO_STABLE_PAGE) && menu->drawerPage > 0) {
-        jumpToStablePage(menu->drawerPage);
-        return;
-      }
-      if (menu->action == static_cast<int>(EpubReaderMenuAction::AUTO_PAGE_TURN) && menu->drawerValue >= 0) {
-        setAutoPageTurnIntervalSeconds(static_cast<uint16_t>(menu->drawerValue));
-        return;
-      }
-      const auto action = static_cast<EpubReaderMenuAction>(menu->action);
-      const bool returnToReaderMenu = menu->reopenDrawer;
-      if (action == EpubReaderMenuAction::SYNC || action == EpubReaderMenuAction::NEARBY_POSITION_SYNC ||
-          action == EpubReaderMenuAction::SEND_NEARBY_BOOK) {
-        PendingOverlayResume resume;
-        resume.origin = PendingOverlayOrigin::Reader;
-        resume.overlay = PendingOverlayType::ReaderDrawer;
-        resume.tab = static_cast<uint8_t>(menu->drawerState.tab);
-        resume.pane = static_cast<uint8_t>(menu->drawerState.pane);
-        resume.selectedIndex = menu->drawerState.selectedIndex;
-        resume.scrollPosition = menu->drawerState.pane == ReaderDrawerPane::Root
-                                    ? menu->drawerState.rootTopIndex[static_cast<size_t>(menu->drawerState.tab)]
-                                    : menu->drawerState.paneTopIndex;
-        resume.bookPath = epub->getPath();
-        onReaderMenuConfirm(action, returnToReaderMenu, &resume);
-      } else {
-        onReaderMenuConfirm(action, returnToReaderMenu);
-      }
-      if (menu->reopenDrawer &&
-          (action == EpubReaderMenuAction::BOOKMARK_TOGGLE || action == EpubReaderMenuAction::TOGGLE_COMPLETED ||
-           action == EpubReaderMenuAction::RESET_READING_PACE ||
-           action == EpubReaderMenuAction::TOGGLE_BOOK_STATS_TRACKING)) {
-        openReaderMenu();
-      }
-    }
+    applyReaderMenuResult(*menu, result.isCancelled, PendingOverlayType::ReaderDrawer);
   });
+}
+
+void EpubReaderActivity::applyReaderMenuSettings(const MenuResult& menu) {
+  applyOrientation(menu.orientation);
+  if (menu.settingsChanged && hasReaderSettingsChange(menu.changeMask, ReaderSettingsChangeMask::Relayout)) {
+    ensureReaderSdFontLoaded(renderer, epub.get());
+    RenderLock lock(*this);
+    prepareCurrentSectionForRelayout();
+    section.reset();  // Force re-layout with changed reader settings
+  }
+}
+
+void EpubReaderActivity::applyReaderMenuResult(const MenuResult& result, const bool cancelled,
+                                               const PendingOverlayType overlay) {
+  const MenuResult* menu = &result;
+  applyReaderMenuSettings(result);
+  resumeReadingPaceTimer("reader_menu_return");
+  if (!cancelled) {
+    if (menu->action == static_cast<int>(EpubReaderMenuAction::GO_TO_PERCENT) && menu->drawerValue >= 0) {
+      // The touch drawer's Percent pane reports centipercent (see EpubReaderDrawerActivity::percent).
+      jumpToPercent(static_cast<float>(menu->drawerValue) / 100.0f);
+      return;
+    }
+    if (menu->action == static_cast<int>(EpubReaderMenuAction::GO_TO_STABLE_PAGE) && menu->drawerPage > 0) {
+      jumpToStablePage(menu->drawerPage);
+      return;
+    }
+    if (menu->action == static_cast<int>(EpubReaderMenuAction::AUTO_PAGE_TURN) && menu->drawerValue >= 0) {
+      setAutoPageTurnIntervalSeconds(static_cast<uint16_t>(menu->drawerValue));
+      return;
+    }
+    const auto action = static_cast<EpubReaderMenuAction>(menu->action);
+    const bool returnToReaderMenu = menu->reopenDrawer;
+    if (action == EpubReaderMenuAction::SYNC || action == EpubReaderMenuAction::NEARBY_POSITION_SYNC ||
+        action == EpubReaderMenuAction::SEND_NEARBY_BOOK) {
+      PendingOverlayResume resume;
+      resume.origin = PendingOverlayOrigin::Reader;
+      resume.overlay = overlay;
+      resume.tab = static_cast<uint8_t>(menu->drawerState.tab);
+      resume.pane = static_cast<uint8_t>(menu->drawerState.pane);
+      resume.selectedIndex = menu->drawerState.selectedIndex;
+      resume.scrollPosition = menu->drawerState.pane == ReaderDrawerPane::Root
+                                  ? menu->drawerState.rootTopIndex[static_cast<size_t>(menu->drawerState.tab)]
+                                  : menu->drawerState.paneTopIndex;
+      resume.bookPath = epub->getPath();
+      onReaderMenuConfirm(action, returnToReaderMenu, &resume);
+    } else {
+      onReaderMenuConfirm(action, returnToReaderMenu);
+    }
+    if (menu->reopenDrawer &&
+        (action == EpubReaderMenuAction::BOOKMARK_TOGGLE || action == EpubReaderMenuAction::TOGGLE_COMPLETED ||
+         action == EpubReaderMenuAction::RESET_READING_PACE ||
+         action == EpubReaderMenuAction::TOGGLE_BOOK_STATS_TRACKING)) {
+      openReaderMenu();
+    }
+  }
 }
 
 void EpubReaderActivity::showBuildPopup() {
@@ -5087,6 +5105,62 @@ std::unique_ptr<Activity> EpubReaderActivity::createFrontlightReadingStatsActivi
   return statsActivity;
 }
 
+#if CROSSINK_APP_PICCO_UI
+bool EpubReaderActivity::fillReaderSheetDetails(ReaderSheetDetails& details) {
+  if (!epub) return false;
+  details.format = ReaderSheetDetails::Format::Epub;
+  details.hasContents = true;
+  details.epub = epub;
+  details.initialState = readerSheetState;
+  readerSheetState = FrontlightDrawerState{};
+  details.callbacks = {saveReaderOptionsForBook,
+                       this,
+                       saveGlobalSettingsForBookReader,
+                       this,
+                       beginGlobalSettingsEditForBookReader,
+                       this,
+                       endGlobalSettingsEditForBookReader,
+                       this,
+                       saveDictionaryFontForBookReader,
+                       this};
+  const BookReaderSettingsData bookSettings = loadBookReaderSettingsFile(epub->getCachePath());
+  details.dictionaryFontFamily = bookSettings.dictionarySdFontFamilyName;
+  details.dictionaryFontPointSize = bookSettings.dictionaryFontPointSize;
+  details.hasDictionaryFontOverride = bookSettings.hasDictionaryFontOverride;
+  details.autoPageTurnSeconds = getAutoPageTurnIntervalSeconds();
+  details.autoPageTurnActive = automaticPageTurnActive;
+  details.globalStats = SETTINGS.shouldTrackReadingStats();
+  details.bookStats = bookStatsEnabled;
+  details.showReadingPaceReset = SETTINGS.topReaderStatusBar.contains(ReaderStatusBarItem::TimeLeftBook) ||
+                                 SETTINGS.topReaderStatusBar.contains(ReaderStatusBarItem::TimeLeftChapter) ||
+                                 SETTINGS.bottomReaderStatusBar.contains(ReaderStatusBarItem::TimeLeftBook) ||
+                                 SETTINGS.bottomReaderStatusBar.contains(ReaderStatusBarItem::TimeLeftChapter);
+  details.hasClippings = CLIPPINGS.hasClippings();
+  details.bookmarkCount = static_cast<uint16_t>(std::min<size_t>(BOOKMARKS.getBookmarks().size(), UINT16_MAX));
+  // Same snapshot as openReaderDrawer, under the render lock.
+  RenderLock lock(*this);
+  const bool previewActive = activeFootnotePreview;
+  details.hasFootnotes = !previewActive && !currentPageFootnotes.empty();
+  details.footnoteCount = static_cast<uint16_t>(std::min<size_t>(currentPageFootnotes.size(), UINT16_MAX));
+  details.hasDictionary = !previewActive && Dictionary::exists(epub->getCachePath().c_str());
+  details.completed = stats.isCompleted;
+  const int totalPages = section ? section->estimatedTotalPages() : 0;
+  if (section && totalPages > 0 && !previewActive) {
+    const float progress = static_cast<float>(section->currentPage) / totalPages;
+    details.pageBookmarked =
+        BOOKMARKS.hasBookmarkForPage(static_cast<uint16_t>(currentSpineIndex), progress, totalPages);
+    details.stablePageCount = epub->getReferencePageCount();
+    if (details.stablePageCount > 0) {
+      uint32_t current = 1;
+      uint32_t resolved = 0;
+      epub->resolveReferencePage(currentSpineIndex, progress, current, resolved);
+      details.stablePage = current;
+    }
+  }
+  return true;
+}
+#endif
+
 bool EpubReaderActivity::getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) {
   RenderLock lock(*this);
   if (!epub) return false;
@@ -5157,6 +5231,30 @@ bool EpubReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult
     relayoutAfterTtfRenderChange();
     handled = true;
   }
+#if CROSSINK_APP_PICCO_UI
+  // The Picco sheet is the reader menu: run its request through the drawer's result path.
+  const ReaderSheetRequest& sheet = result.sheet;
+  if (sheet.fromSheet) {
+    readerSheetState = sheet.reopen ? result.state : FrontlightDrawerState{};
+    MenuResult menu;
+    menu.action = sheet.action;
+    menu.orientation = sheet.orientation;
+    menu.settingsChanged = sheet.settingsChanged;
+    menu.changeMask = static_cast<ReaderSettingsChangeMask>(sheet.changeMask);
+    menu.reopenDrawer = sheet.reopen;
+    menu.drawerValue = static_cast<int16_t>(sheet.value);
+    menu.drawerPage = sheet.page;
+    menu.drawerState.tab = static_cast<ReaderDrawerTab>(result.state.sheetTab);
+    menu.drawerState.pane = static_cast<ReaderDrawerPane>(result.state.sheetPane);
+    menu.drawerState.selectedIndex = result.state.sheetFocus;
+    if (result.action == FrontlightPanelAction::None) {
+      applyReaderMenuResult(menu, sheet.action < 0, PendingOverlayType::ReaderSheet);
+      requestUpdate();
+      return true;
+    }
+    applyReaderMenuSettings(menu);
+  }
+#endif
   if (result.action == FrontlightPanelAction::None) return handled;
   if (result.action != FrontlightPanelAction::SyncProgress && result.action != FrontlightPanelAction::BookOrbitSync &&
       result.action != FrontlightPanelAction::NearbyPositionSync &&
@@ -5169,6 +5267,14 @@ bool EpubReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult
   resume.overlay = PendingOverlayType::FrontlightDrawer;
   resume.selectedIndex = result.state.selectedAction;
   resume.bookPath = epub->getPath();
+#if CROSSINK_APP_PICCO_UI
+  if (result.sheet.fromSheet) {
+    resume.overlay = PendingOverlayType::ReaderSheet;
+    resume.tab = result.state.sheetTab;
+    resume.pane = result.state.sheetPane;
+    resume.selectedIndex = result.state.sheetFocus;
+  }
+#endif
   if (result.action == FrontlightPanelAction::SyncProgress) {
     if (!KOREADER_STORE.hasCredentials()) return startGlobalSyncProgress();
     resume.readerOrientation = SETTINGS.orientation;
@@ -5208,6 +5314,16 @@ bool EpubReaderActivity::handleExternalReaderMenuAction(const uint8_t action) {
 
 bool EpubReaderActivity::restorePendingOverlay(const PendingOverlayResume& resume) {
   if (!epub || !pendingOverlayOpensReaderMenu(resume.overlay) || resume.bookPath != epub->getPath()) return false;
+#if CROSSINK_APP_PICCO_UI
+  if (resume.overlay == PendingOverlayType::ReaderSheet && readerMenuKind() == ReaderMenuKind::Sheet) {
+    readerSheetState = FrontlightDrawerState{};
+    readerSheetState.sheetPane = resume.pane;
+    readerSheetState.sheetTab = resume.tab;
+    readerSheetState.sheetFocus = static_cast<int8_t>(resume.selectedIndex);
+    openReaderMenu();
+    return true;
+  }
+#endif
   touchReaderDrawerState.tab =
       static_cast<ReaderDrawerTab>(std::min<uint8_t>(resume.tab, static_cast<uint8_t>(ReaderDrawerTab::Count) - 1));
   touchReaderDrawerState.pane = static_cast<ReaderDrawerPane>(resume.pane);

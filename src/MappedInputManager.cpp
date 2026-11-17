@@ -21,6 +21,9 @@
 #include <CrossInkHalFrontlight.h>
 
 #include "activities/util/FrontlightPanelModel.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/sheet/PiccoSheetModel.h"
+#endif
 #endif
 #ifdef SIMULATOR
 #include "simulator/SimulatorHomeKeyInput.h"
@@ -839,10 +842,28 @@ bool MappedInputManager::wasMenuGesture() const {
   return usesFrontlightSwipeLayout() ? wasBottomEdgeUpSwipe() : wasTopEdgeDownSwipe();
 }
 
+#if CROSSINK_APP_PICCO_UI
+namespace {
+// The Picco gesture table: the reader sheet opens downwards, Home is upwards.
+bool piccoReaderSwipeUpGoesHome() {
+  return UITheme::isPicco() && PiccoSheet::gestureEffect(PiccoSheet::Place::ReaderEpub, PiccoSheet::Input::SwipeUp) ==
+                                   PiccoSheet::Effect::GoHome;
+}
+}  // namespace
+#endif
+
 // All touch readers share the same drawer gestures, independent of hardware.
-bool MappedInputManager::wasReaderMenuGesture() const { return wasSwipe() == SwipeDir::Up; }
+bool MappedInputManager::wasReaderMenuGesture() const {
+#if CROSSINK_APP_PICCO_UI
+  if (piccoReaderSwipeUpGoesHome()) return false;
+#endif
+  return wasSwipe() == SwipeDir::Up;
+}
 
 bool MappedInputManager::wasReaderHomeGesture() const {
+#if CROSSINK_APP_PICCO_UI
+  if (piccoReaderSwipeUpGoesHome() && wasSwipe() == SwipeDir::Up) return true;
+#endif
   // Vertical swipes belong to the drawers; Home stays available from the top
   // drawer's header and from a physical Home key when the device has one.
   return hasHomeKeyHardware() && wasHomeGesture();

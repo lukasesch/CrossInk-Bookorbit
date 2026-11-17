@@ -820,9 +820,8 @@ void KOReaderSyncActivity::onEnter() {
   uint8_t syncOrientation =
       readerOrientation < CrossPointSettings::ORIENTATION_COUNT ? readerOrientation : SETTINGS.orientation;
   const PendingOverlayResume& resume = APP_STATE.pendingOverlayResume;
-  if (!folderSync && resume.origin == PendingOverlayOrigin::Reader &&
-      resume.overlay == PendingOverlayType::FrontlightDrawer && resume.preserveReaderOrientation &&
-      resume.readerOrientation < CrossPointSettings::ORIENTATION_COUNT) {
+  if (!folderSync && resume.origin == PendingOverlayOrigin::Reader && pendingOverlayIsTopSheet(resume.overlay) &&
+      resume.preserveReaderOrientation && resume.readerOrientation < CrossPointSettings::ORIENTATION_COUNT) {
     syncOrientation = resume.readerOrientation;
   }
   ReaderUtils::applyOrientation(renderer, syncOrientation);

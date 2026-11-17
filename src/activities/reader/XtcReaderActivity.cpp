@@ -6,6 +6,9 @@
  */
 
 #include "XtcReaderActivity.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/sheet/ReaderSheetDetails.h"
+#endif
 
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -189,9 +192,14 @@ void XtcReaderActivity::onExit() {
 
 void XtcReaderActivity::openReaderMenu() {
   switch (readerMenuKind()) {
-    case ReaderMenuKind::Drawer:
-    // The sheet arrives in Phase 3b; nothing selects it yet.
     case ReaderMenuKind::Sheet:
+      // The sheet is portrait only; landscape keeps the menu list.
+      if (renderer.getScreenHeight() > renderer.getScreenWidth() && activityManager.openFrontlightPanelFrom(*this)) {
+        return;
+      }
+      openXtcReaderMenu();
+      return;
+    case ReaderMenuKind::Drawer:
       openXtcReaderMenu();
       return;
   }
@@ -1102,7 +1110,31 @@ void XtcReaderActivity::onReaderMenuConfirm(const int action) {
   }
 }
 
+#if CROSSINK_APP_PICCO_UI
+bool XtcReaderActivity::fillReaderSheetDetails(ReaderSheetDetails& details) {
+  RenderLock lock(*this);
+  if (!xtc) return false;
+  details.format = ReaderSheetDetails::Format::Xtc;
+  details.hasContents = xtc->hasChapters() && xtc->getChapterCount() > 0;
+  details.hasMenu = true;
+  return true;
+}
+#endif
+
 bool XtcReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult& result) {
+#if CROSSINK_APP_PICCO_UI
+  if (result.sheet.fromSheet && result.action == FrontlightPanelAction::None) {
+    if (result.sheet.openMenu) {
+      openXtcReaderMenu();
+      return true;
+    }
+    if (result.sheet.action >= 0) {
+      onReaderMenuConfirm(result.sheet.action);
+      return true;
+    }
+    return false;
+  }
+#endif
   if (result.action != FrontlightPanelAction::SendNearbyBook || !xtc) return false;
   saveProgress(currentPage);
   return activityManager.goToNearbyBookSend(xtc->getPath(), true);

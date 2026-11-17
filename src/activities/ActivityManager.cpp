@@ -58,6 +58,12 @@
 #include "settings/ReleaseNotesActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/FrontlightPanelActivity.h"
+#if CROSSINK_APP_PICCO_UI
+#include <new>
+
+#include "components/UITheme.h"
+#include "components/picco/sheet/ReaderSheetDetails.h"
+#endif
 #include "util/FullScreenMessageActivity.h"
 #include "util/SlideSwitch.h"
 #include "util/SwipeAdjustment.h"
@@ -109,6 +115,16 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
       context.showReaderDetails = shouldShowReaderDetails(Frontlight.present(), context.activeReaderBook);
       context.bookTitle = context.bookDetails.title;
     }
+#if CROSSINK_APP_PICCO_UI
+    if (UITheme::isPicco()) {
+      std::shared_ptr<ReaderSheetDetails> sheet(new (std::nothrow) ReaderSheetDetails());
+      if (!sheet) {
+        LOG_ERR("ACT", "OOM preparing the reader sheet");
+      } else if (activity.fillReaderSheetDetails(*sheet)) {
+        context.readerSheet = std::move(sheet);
+      }
+    }
+#endif
     if (context.showReadingStatsAction) context.readingStatsActivity = activity.createFrontlightReadingStatsActivity();
     if (context.activeEpub) {
       context.bookPath = currentPath;

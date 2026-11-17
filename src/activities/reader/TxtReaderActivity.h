@@ -148,6 +148,9 @@ class TxtReaderActivity final : public Activity {
   bool getFrontlightPanelBookDetails(FrontlightPanelBookDetails& details) override;
   void onFrontlightPanelOpened() override { saveProgressBeforeRestart(); }
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
+#if CROSSINK_APP_PICCO_UI
+  bool fillReaderSheetDetails(ReaderSheetDetails& details) override;
+#endif
 
   // Renders the last saved page to the frame buffer without flushing to display.
   // Used by SleepActivity to prepare the background for the overlay sleep mode.

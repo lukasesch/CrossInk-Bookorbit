@@ -102,10 +102,17 @@ void FrontlightPanelActivity::onEnter() {
   app.on(ACTION_DISMISS, &FrontlightPanelActivity::onDismissEvent, this);
   app.setScreen(&FrontlightPanelActivity::panelScreen, this);
   prepareReaderDetailsLayout();
+#if CROSSINK_APP_PICCO_UI
+  piccoSheet = UITheme::isPicco() && renderer.getScreenHeight() > renderer.getScreenWidth();
+  if (piccoSheet) sheetEnter();
+#endif
   requestUpdate();
 }
 
 void FrontlightPanelActivity::onExit() {
+#if CROSSINK_APP_PICCO_UI
+  if (piccoSheet) sheetExit();
+#endif
   // Debounced persistence: one SPIFFS write on close, never per slider tick.
   const bool inversionChanged = initialInversion != static_cast<bool>(SETTINGS.screenInverted);
   const bool touchscreenChanged = initialTouchscreenDisabled != static_cast<bool>(SETTINGS.disableReaderTouchscreen);
@@ -213,6 +220,12 @@ void FrontlightPanelActivity::toggleReaderTouchscreen() {
 }
 
 void FrontlightPanelActivity::close() {
+#if CROSSINK_APP_PICCO_UI
+  if (piccoSheet) {
+    sheetFinish(ReaderSheetRequest{});
+    return;
+  }
+#endif
   FrontlightPanelResult result;
   result.state = drawerState;
   result.activeEpub = context.activeEpub;
@@ -338,6 +351,12 @@ bool FrontlightPanelActivity::handleHomeGesture() {
 }
 
 void FrontlightPanelActivity::loop() {
+#if CROSSINK_APP_PICCO_UI
+  if (piccoSheet) {
+    sheetLoop();
+    return;
+  }
+#endif
   if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
 
   // A power-button shortcut can change the light globally while this panel is
@@ -692,6 +711,12 @@ void FrontlightPanelActivity::addStepSlider(UiApp::ScreenType& screen, const fui
 }
 
 void FrontlightPanelActivity::render(RenderLock&&) {
+#if CROSSINK_APP_PICCO_UI
+  if (piccoSheet) {
+    sheetRender();
+    return;
+  }
+#endif
   // Overlay drop-down: keep the framebuffer content (the reader/menu we opened
   // over) intact below the panel; only the fitted panel is repainted. No full
   // clearScreen — same as the theme popups draw over the current frame.

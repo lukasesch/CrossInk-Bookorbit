@@ -1,4 +1,7 @@
 #include "TxtReaderActivity.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/sheet/ReaderSheetDetails.h"
+#endif
 
 #include <BidiUtils.h>
 #include <FontCacheManager.h>
@@ -179,6 +182,14 @@ void TxtReaderActivity::onExit() {
   APP_STATE.saveToFile();
   txt.reset();
 }
+
+#if CROSSINK_APP_PICCO_UI
+// TXT has no menu: its sheet shows title, progress and the light band.
+bool TxtReaderActivity::fillReaderSheetDetails(ReaderSheetDetails& details) {
+  details.format = ReaderSheetDetails::Format::Txt;
+  return true;
+}
+#endif
 
 bool TxtReaderActivity::handleFrontlightPanelResult(const FrontlightPanelResult& result) {
   if (result.action != FrontlightPanelAction::SendNearbyBook || !txt) return false;

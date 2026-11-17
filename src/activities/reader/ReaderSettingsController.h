@@ -72,6 +72,13 @@ class ReaderSettingsController {
   // Puts the picked family in the draft for preview. False for an out-of-range index.
   bool previewFontFamily(int index);
 
+  // One-tap edits for the Picco sheet's steppers, segmented rows and font chips.
+  // Each returns false when the value did not change.
+  enum class Step : uint8_t { FontSize, LineSpacing, WordSpacing, CharacterSpacing, MarginTopBottom, MarginSides };
+  bool step(Step what, int delta);
+  bool setEnumValue(RowId row, uint8_t value);
+  bool selectBuiltinFontFamily(uint8_t fontFamily);
+
   // Option picker. show/open return false when there is nothing to pick.
   bool showEnumOptions(GfxRenderer& renderer, RowId row);
   bool openEnumOptions(RowId row, StrId title, std::vector<std::string> labels, std::vector<uint8_t> values,

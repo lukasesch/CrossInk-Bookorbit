@@ -119,4 +119,15 @@ TEST(PendingOverlayResume, ReaderSheetIsAppendedAndOpensTheReaderMenu) {
   EXPECT_FALSE(pendingOverlayOpensReaderMenu(PendingOverlayType::None));
 }
 
-TEST(ReaderMenuKind, DrawerIsTheOnlySelectableMenu) { EXPECT_EQ(readerMenuKind(), ReaderMenuKind::Drawer); }
+TEST(PendingOverlayResume, TopSheetsKeepTheReaderOrientation) {
+  EXPECT_TRUE(pendingOverlayIsTopSheet(PendingOverlayType::FrontlightDrawer));
+  EXPECT_TRUE(pendingOverlayIsTopSheet(PendingOverlayType::ReaderSheet));
+  EXPECT_FALSE(pendingOverlayIsTopSheet(PendingOverlayType::ReaderDrawer));
+}
+
+TEST(ReaderMenuKind, DrawerOutsideThePiccoUi) { EXPECT_EQ(readerMenuKind(), ReaderMenuKind::Drawer); }
+
+TEST(ReaderMenuKind, PiccoThemeOpensTheSheet) {
+  EXPECT_EQ(readerMenuKindFor(true), ReaderMenuKind::Sheet);
+  EXPECT_EQ(readerMenuKindFor(false), ReaderMenuKind::Drawer);
+}

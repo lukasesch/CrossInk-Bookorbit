@@ -1,0 +1,24 @@
+# Picco reader sheet icons, drawn from the T_ReaderSheet* boards (SVGs in assets/picco-sheet-icons).
+# Regenerate with the SDK generator (needs rsvg-convert and Pillow):
+# python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
+#   --manifest src/components/icons/piccoSheetIcons.manifest \
+#   --svgdir assets/picco-sheet-icons --sizes 22,24,26,28 \
+#   --out src/components/icons/piccoSheetIcons.h
+# then clang-format -i the output.
+picco_sheet_sun = sheet-sun
+picco_sheet_warmth = sheet-warmth
+picco_sheet_text = sheet-text
+picco_sheet_bookmark = sheet-bookmark
+picco_sheet_bookmark_filled = sheet-bookmark-filled
+picco_sheet_contents = sheet-contents
+picco_sheet_more = sheet-more
+picco_sheet_align_left = sheet-align-left
+picco_sheet_align_center = sheet-align-center
+picco_sheet_align_justify = sheet-align-justify
+picco_sheet_align_right = sheet-align-right
+picco_sheet_align_book = sheet-align-book
+picco_sheet_portrait = sheet-portrait
+picco_sheet_landscape_cw = sheet-landscape-cw
+picco_sheet_portrait_inverted = sheet-portrait-inverted
+picco_sheet_landscape_ccw = sheet-landscape-ccw
+picco_sheet_backspace = sheet-backspace

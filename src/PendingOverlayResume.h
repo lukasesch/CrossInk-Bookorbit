@@ -8,8 +8,8 @@ enum class PendingOverlayOrigin : uint8_t { None = 0, Reader, Home, FileBrowser,
 // Raw values are persisted: append only.
 enum class PendingOverlayType : uint8_t { None = 0, ReaderDrawer, FrontlightDrawer, ReaderSheet };
 
-// Overlays a reader restores through its reader menu. Until the sheet exists,
-// a ReaderSheet resume opens the drawer the same way ReaderDrawer does.
+// Overlays a reader restores through its reader menu. A ReaderSheet resume opens
+// the Picco sheet; under another theme it opens the drawer like ReaderDrawer.
 constexpr bool pendingOverlayOpensReaderMenu(const PendingOverlayType overlay) {
   switch (overlay) {
     case PendingOverlayType::ReaderDrawer:
@@ -20,6 +20,11 @@ constexpr bool pendingOverlayOpensReaderMenu(const PendingOverlayType overlay) {
       return false;
   }
   return false;
+}
+
+// Top sheets (light panel, Picco reader sheet) keep the reader's orientation across a sync.
+constexpr bool pendingOverlayIsTopSheet(const PendingOverlayType overlay) {
+  return overlay == PendingOverlayType::FrontlightDrawer || overlay == PendingOverlayType::ReaderSheet;
 }
 
 struct PendingOverlayResume {

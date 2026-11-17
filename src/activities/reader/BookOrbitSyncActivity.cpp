@@ -1963,7 +1963,7 @@ void BookOrbitSyncActivity::onEnter() {
   bool hasReaderOrientation = readerOrientation < CrossPointSettings::ORIENTATION_COUNT;
   uint8_t syncOrientation = hasReaderOrientation ? readerOrientation : SETTINGS.orientation;
   const PendingOverlayResume& resume = APP_STATE.pendingOverlayResume;
-  if (resume.origin == PendingOverlayOrigin::Reader && resume.overlay == PendingOverlayType::FrontlightDrawer &&
+  if (resume.origin == PendingOverlayOrigin::Reader && pendingOverlayIsTopSheet(resume.overlay) &&
       resume.preserveReaderOrientation && resume.readerOrientation < CrossPointSettings::ORIENTATION_COUNT) {
     syncOrientation = resume.readerOrientation;
     hasReaderOrientation = true;

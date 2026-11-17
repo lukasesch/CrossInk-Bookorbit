@@ -187,6 +187,9 @@ class XtcReaderActivity final : public Activity {
   }
   void onFrontlightPanelClosed() override;
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
+#if CROSSINK_APP_PICCO_UI
+  bool fillReaderSheetDetails(ReaderSheetDetails& details) override;
+#endif
 
   // Renders the last saved page to the frame buffer without flushing to display.
   // Used by SleepActivity to prepare the background for the overlay sleep mode.

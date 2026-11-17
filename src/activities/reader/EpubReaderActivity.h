@@ -26,6 +26,7 @@
 #include "FootnoteLinkTargets.h"
 #include "GlobalReadingStats.h"
 #include "ManualPageTurnQueue.h"
+#include "PendingOverlayResume.h"
 #include "PluginReaderEvents.h"
 #include "ReaderButtonShortcuts.h"
 #include "ReaderMenuKind.h"
@@ -265,6 +266,10 @@ class EpubReaderActivity final : public Activity {
   std::optional<uint16_t> pendingResolvedReferencePage;
   uint16_t pendingParagraphIndex = UINT16_MAX;
   ReaderDrawerState touchReaderDrawerState{};
+#if CROSSINK_APP_PICCO_UI
+  // Pane the Picco sheet reopens on after a sub-screen; reset once handed over.
+  FrontlightDrawerState readerSheetState{};
+#endif
 #if CROSSINK_APP_CAP_TOUCH
   std::unique_ptr<TouchReaderPreviewModel> touchReaderPreviewModel;
   bool touchReaderPreviewAllocationAttempted = false;
@@ -571,6 +576,9 @@ class EpubReaderActivity final : public Activity {
   // Opens the reader menu for the current position (short-press Confirm)
   void openReaderMenu();
   void openReaderDrawer();
+  // The drawer's result path, shared with the Picco sheet (overlay = what a sync restores).
+  void applyReaderMenuSettings(const MenuResult& menu);
+  void applyReaderMenuResult(const MenuResult& menu, bool cancelled, PendingOverlayType overlay);
   void applyOrientation(uint8_t orientation);
   bool handleEndOfBookPageTurn(bool isForwardTurn);
   void requestManualPageTurn(bool isForwardTurn, const char* source);
@@ -687,6 +695,9 @@ class EpubReaderActivity final : public Activity {
   bool onFrontlightGlobalSettingsOpened() override { return beginGlobalSettingsEdit(); }
   void onFrontlightGlobalSettingsClosed() override { endGlobalSettingsEdit(); }
   bool handleFrontlightPanelResult(const FrontlightPanelResult& result) override;
+#if CROSSINK_APP_PICCO_UI
+  bool fillReaderSheetDetails(ReaderSheetDetails& details) override;
+#endif
   bool handleExternalReaderMenuAction(uint8_t action) override;
   bool restorePendingOverlay(const PendingOverlayResume& resume) override;
   void setAutoPageTurnIntervalSeconds(uint16_t seconds);

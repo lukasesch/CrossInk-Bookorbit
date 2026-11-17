@@ -12,6 +12,7 @@
 
 #include "CrossPointSettings.h"
 #include "ReaderFontLoading.h"
+#include "ReaderFontSizeStep.h"
 #include "ReaderUtils.h"
 #include "SettingsList.h"
 #include "activities/RenderLock.h"
@@ -302,6 +303,77 @@ bool ReaderSettingsController::toggleSetting(const RowId row) {
   const ReaderSettingsChangeMask mask = toggleReaderSetting(draft, row);
   if (mask == ReaderSettingsChangeMask::None) return false;
   markSettingChanged(mask);
+  return true;
+}
+
+bool ReaderSettingsController::step(const Step what, const int delta) {
+  const auto clampTo = [delta](const int value, const int minimum, const int maximum) {
+    return static_cast<uint8_t>(std::clamp(value + delta, minimum, maximum));
+  };
+  uint8_t* target = nullptr;
+  uint8_t next = 0;
+  switch (what) {
+    case Step::FontSize: {
+      std::vector<uint8_t> sizes;
+      if (draft.sdFontFamilyName[0] != '\0') {
+        RenderLock lock;
+        sdFontSystem.refreshIfDirty();
+        if (const auto* family = sdFontSystem.registry().findFamily(draft.sdFontFamilyName.data())) {
+          sizes = family->availableSizes();
+        }
+      }
+      if (sizes.empty()) sizes.assign(std::begin(BUILTIN_READER_FONT_SIZES), std::end(BUILTIN_READER_FONT_SIZES));
+      next = draft.readerFontPointSize;
+      if (!changeReaderFontSizeStep(sizes.data(), sizes.size(), next, delta > 0, FontSizeStepMode::Clamp)) return false;
+      markSettingChanged(applyReaderEnumOption(draft, RowId::FontSize, next));
+      return true;
+    }
+    case Step::LineSpacing:
+      target = &draft.lineHeightPercent;
+      next = CrossPointSettings::clampedLineHeightPercent(clampTo(draft.lineHeightPercent,
+                                                                  CrossPointSettings::MIN_LINE_HEIGHT_PERCENT,
+                                                                  CrossPointSettings::MAX_LINE_HEIGHT_PERCENT));
+      break;
+    case Step::WordSpacing:
+      target = &draft.wordSpacing;
+      next = WordSpacing::fromLevel(WordSpacing::level(draft.wordSpacing) + delta);
+      break;
+    case Step::CharacterSpacing:
+      target = &draft.characterSpacing;
+      next = clampTo(draft.characterSpacing, 0, CrossPointSettings::MAX_CHARACTER_SPACING);
+      break;
+    case Step::MarginTopBottom:
+      target = &draft.screenMarginVertical;
+      next = clampTo(draft.screenMarginVertical, CrossPointSettings::MIN_SCREEN_MARGIN,
+                     CrossPointSettings::MAX_SCREEN_MARGIN);
+      break;
+    case Step::MarginSides:
+      target = &draft.screenMarginHorizontal;
+      next = clampTo(draft.screenMarginHorizontal, CrossPointSettings::MIN_SCREEN_MARGIN,
+                     CrossPointSettings::MAX_SCREEN_MARGIN);
+      break;
+  }
+  if (target == nullptr || *target == next) return false;
+  *target = next;
+  markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout);
+  return true;
+}
+
+bool ReaderSettingsController::setEnumValue(const RowId row, const uint8_t value) {
+  ReaderSettingsDraft before = draft;
+  const ReaderSettingsChangeMask mask = applyReaderEnumOption(draft, row, value);
+  if (mask == ReaderSettingsChangeMask::None) return false;
+  if (std::memcmp(&before, &draft, sizeof(draft)) == 0) return false;
+  markSettingChanged(mask);
+  return true;
+}
+
+bool ReaderSettingsController::selectBuiltinFontFamily(const uint8_t fontFamily) {
+  if (fontFamily >= CrossPointSettings::BUILTIN_FONT_COUNT) return false;
+  if (draft.sdFontFamilyName[0] == '\0' && draft.fontFamily == fontFamily) return false;
+  draft.fontFamily = fontFamily;
+  draft.sdFontFamilyName[0] = '\0';
+  markSettingChanged(ReaderSettingsChangeMask::Preview | ReaderSettingsChangeMask::Relayout);
   return true;
 }
 

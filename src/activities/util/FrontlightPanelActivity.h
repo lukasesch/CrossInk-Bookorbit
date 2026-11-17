@@ -10,6 +10,16 @@
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
+#if CROSSINK_APP_PICCO_UI
+#include <Memory.h>
+
+#include <array>
+#include <memory>
+
+#include "activities/reader/EpubReaderMenuModel.h"
+#include "activities/reader/ReaderSettingsController.h"
+#include "components/picco/sheet/PiccoSheetModel.h"
+#endif
 
 struct Rect;
 
@@ -89,6 +99,111 @@ class FrontlightPanelActivity final : public Activity {
   int bookSummaryHeight() const;
   void drawBookProgress();
 
+#if CROSSINK_APP_PICCO_UI
+  // ---- Picco reader sheet (FrontlightPanelSheet.cpp) ----
+  // Portrait PICCO theme only; landscape keeps the panel above.
+  enum class SheetHit : uint8_t {
+    HeaderLeading,
+    HeaderSync,
+    HeaderContextual,
+    Tab,
+    GoToBlock,
+    LightToggle,
+    LightSlider,
+    Tile,
+    Chip,
+    Minus,
+    Plus,
+    Segment,
+    Switch,
+    Value,
+    Cell,
+    Button,
+    GoToSlider,
+    GoToStep,
+    GoToKey,
+    Pill,
+  };
+  struct SheetTarget {
+    PiccoLayout::Box box;
+    SheetHit hit = SheetHit::Cell;
+    uint8_t id = 0;     // row, tile, tab or light row
+    int16_t value = 0;  // step delta, segment value, key index
+    int8_t stop = -1;   // rocker focus stop
+  };
+  struct SheetStop {
+    PiccoLayout::Box box;
+    uint8_t radius = 14;
+    uint8_t target = 0;       // first target of the stop
+    bool adjustable = false;  // Confirm enters editing, Up/Down change the value
+  };
+  static constexpr size_t kMaxSheetTargets = 48;
+  static constexpr size_t kMaxSheetStops = 32;
+
+  bool piccoSheet = false;
+  PiccoSheet::Variant sheetVariant = PiccoSheet::Variant::Outside;
+  PiccoSheet::Pane sheetPane = PiccoSheet::Pane::Main;
+  uint8_t sheetTab = 0;
+  std::unique_ptr<ReaderSettingsController> sheetSettings;
+  // Written by render (under its RenderLock), read by loop under a RenderLock.
+  std::array<SheetTarget, kMaxSheetTargets> sheetTargets{};
+  std::array<SheetStop, kMaxSheetStops> sheetStops{};
+  uint8_t sheetTargetCount = 0;
+  uint8_t sheetStopCount = 0;
+  int sheetBottom = 0;
+  int sheetFocus = -1;
+  bool sheetRing = false;
+  ReaderButtonSliderState sheetSlider{};
+  bool sheetDragging = false;  // a slider follows the finger until it lifts
+  SheetTarget sheetDragTarget{};
+  PiccoSheet::GoToEntry goToEntry{};
+  bool goToPercent = true;
+  uint16_t autoTurnSeconds = 30;
+  bool dictionariesReady = false;
+  bool sheetHasBookOrbit = false;
+  bool sheetOffline = false;
+  uint32_t sheetSyncedAt = 0;
+  // The page under the sheet, so a shorter pane uncovers it in the same refresh.
+  // One framebuffer copy (48 KB, PSRAM on the Picco); without it the sheet never shrinks.
+  HeapByteBuffer sheetBackdrop;
+  bool sheetBackdropSaved = false;
+  int sheetPaintedBottom = 0;
+
+  void sheetEnter();
+  void sheetExit();
+  void sheetLoop();
+  void sheetRender();
+  void sheetDraw();
+  void sheetDrawHeader();
+  void sheetDrawMain();
+  void sheetDrawBlocks();
+  void sheetDrawGoTo();
+  void sheetDrawAutoTurn();
+  void sheetDrawLight(const PiccoSheet::LightRow& row, int index);
+  void sheetSetPane(PiccoSheet::Pane pane);
+  void sheetActivate(const SheetTarget& target);
+  void sheetAdjust(int stop, int delta);
+  void sheetSlide(const SheetTarget& target, int x);
+  void sheetActivateRow(PiccoSheet::Row row);
+  void sheetShowRowOptions(PiccoSheet::Row row);
+  void sheetShowFonts();
+  void sheetShowDictionaries();
+  void sheetRequest(int16_t action, int32_t value = -1, uint32_t page = 0, bool reopen = false);
+  void sheetFinish(const ReaderSheetRequest& request, FrontlightPanelAction action = FrontlightPanelAction::None);
+  void sheetBack();
+  void sheetOpenGoTo(bool percent);
+  PiccoSheet::Availability sheetAvailability() const;
+  PiccoSheet::Tiles sheetTiles() const;
+  int sheetHeight() const;
+  int sheetAddTarget(const PiccoLayout::Box& box, SheetHit hit, uint8_t id = 0, int16_t value = 0, int stop = -1);
+  int sheetAddStop(const PiccoLayout::Box& box, uint8_t radius, bool adjustable);
+  const char* sheetRowLabel(PiccoSheet::Row row) const;
+  const char* sheetRowHint(PiccoSheet::Row row) const;
+  const char* sheetRowValue(PiccoSheet::Row row, char* buffer, size_t size) const;
+  bool sheetRowOn(PiccoSheet::Row row) const;
+  bool sheetRowEnabled(PiccoSheet::Row row) const;
+#endif
+
  public:
   explicit FrontlightPanelActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                    FrontlightPanelContext context = {});
@@ -105,6 +220,13 @@ class FrontlightPanelActivity final : public Activity {
   // it dismisses the overlay back to the current screen.
   bool handleHomeGesture() override;
   bool requiresFreshBackdrop() const override { return true; }
+#if defined(SIMULATOR) && CROSSINK_APP_PICCO_UI
+  bool simulatorIsSheet() const { return piccoSheet; }
+  void simulatorShowSheetPane(const PiccoSheet::Pane pane, const uint8_t tab) {
+    sheetSetPane(pane);
+    sheetTab = tab;
+  }
+#endif
 #ifdef SIMULATOR
   freeink::ui::Rect simulatorQuickActionRect(int index) const;
   freeink::ui::Rect simulatorHandleRect() const { return drawerHandleRect; }
