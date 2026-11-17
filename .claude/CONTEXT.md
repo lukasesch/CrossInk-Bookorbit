@@ -6,6 +6,13 @@ Keep this file focused on repo-specific gotchas that are worth reusing in future
 
 Refer to https://freeink.org/llms.txt for guidance.
 
+- `scripts/generate_icons.py` reads Lucide SVGs from the nested submodule `freeink-sdk/libs/assets/Icons/lucide`, which a plain `git submodule update --init freeink-sdk` leaves empty: init it recursively (or fetch the SVGs at the pinned commit). It needs `rsvg-convert` (`brew install librsvg`) and Pillow (`uv run --with pillow`).
+
+## Picco UI fork
+
+- Picco-only i18n keys must start with `STR_PICCO_`: the language-pack size check skips English-valued keys with that prefix (`LanguageCache.cpp`, benchmark branch). `gen_i18n.py` rejects comment lines in YAMLs and scans C++ source for key names, so never spell a key prefix as a string literal.
+- Hand-drawn Picco screens take the header band from `UITheme::getHeaderRect(renderer, 80)`, never y 0: insets/calibration move it (the picco-simulator X4 Pro profile starts it ~9 px down).
+
 ## Simulator
 
 - Simulator patches belong in the adjacent `crossink-simulator` repo (fetched from `github.com/uxjulia/crossink-simulator` into `.pio/libdeps/simulator/simulator` when no local checkout is symlinked).
