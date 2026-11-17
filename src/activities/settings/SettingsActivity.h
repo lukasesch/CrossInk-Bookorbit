@@ -240,6 +240,7 @@ class SettingsActivity final : public Activity {
 #ifdef SIMULATOR
   friend struct ScreenCalibrationSmokeTest;
   friend struct ReaderDrawerLayoutSmokeTest;
+  friend struct PiccoScreensSmokeTest;
 #endif
 #ifdef SIMULATOR
   friend struct AssetDownloadSmokeTest;

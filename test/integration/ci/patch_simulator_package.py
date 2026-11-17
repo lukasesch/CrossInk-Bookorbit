@@ -8,7 +8,8 @@ fresh checkout — needs these shims applied to the fetched copy under
 the script is idempotent and turns into a no-op as upstream catches up.
 
 Usage: python3 test/integration/ci/patch_simulator_package.py [env...]
-       (default env: simulator)
+       (default env: simulator; each env has its own copy, so name every
+       simulator env you build, e.g. `simulator picco-simulator`)
 
 Run `pio pkg install -e <env>` first so the package exists.
 """
@@ -151,6 +152,26 @@ def patch_env(env: str) -> None:
             "inline const esp_partition_t *esp_ota_get_running_partition() {\n  return nullptr;\n}\n\n"
             "inline esp_err_t esp_ota_mark_app_valid_cancel_rollback() {", 1)):
         changed.append("esp_ota_get_running_partition")
+
+    # 7. picco-simulator runs the X4 Pro profile as a BOOX Picco, which has no
+    #    Home key (SIMULATOR_DEVICE_PICCO, platformio.ini). Upstream has no Picco
+    #    profile; the define is inert in every other env.
+    if patch(src / "BoardConfig.h", "SIMULATOR_DEVICE_PICCO", lambda t: t.replace(
+            "inline bool hasHomeKey() { return isX4Pro(); }",
+            "#if defined(SIMULATOR_DEVICE_PICCO)\n"
+            "inline bool isPicco() { return true; }\n"
+            "inline bool hasHomeKey() { return false; }\n"
+            "#else\n"
+            "inline bool isPicco() { return false; }\n"
+            "inline bool hasHomeKey() { return isX4Pro(); }\n"
+            "#endif", 1)):
+        changed.append("Picco profile (no Home key)")
+    if patch(src / "HalDisplay.cpp", "SIMULATOR_DEVICE_PICCO", lambda t: t.replace(
+            "#elif defined(SIMULATOR_DEVICE_X4_PRO)\nstatic constexpr const char *WINDOW_TITLE",
+            "#elif defined(SIMULATOR_DEVICE_PICCO)\n"
+            "static constexpr const char *WINDOW_TITLE = \"Simulator - BOOX Picco\";\n"
+            "#elif defined(SIMULATOR_DEVICE_X4_PRO)\nstatic constexpr const char *WINDOW_TITLE", 1)):
+        changed.append("Picco window title")
 
     if changed:
         print(f"[{env}] patched: {', '.join(changed)}")

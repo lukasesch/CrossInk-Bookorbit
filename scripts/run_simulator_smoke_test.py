@@ -235,6 +235,25 @@ def sign_asset_mock(mock: Path, temp_root: Path) -> str:
     return public_key_hex(key)
 
 
+def pgm_to_png(pgm: Path) -> Path:
+    """Convert one 8-bit binary PGM capture into a grayscale PNG beside it."""
+    data = pgm.read_bytes()
+    fields = data.split(maxsplit=4)
+    if fields[0] != b"P5" or int(fields[3]) != 255:
+        raise ValueError(f"{pgm} is not an 8-bit binary PGM")
+    width, height = int(fields[1]), int(fields[2])
+    pixels = fields[4][: width * height]
+    raw = b"".join(b"\0" + pixels[y * width:(y + 1) * width] for y in range(height))
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+
+    png = pgm.with_suffix(".png")
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)) +
+                    chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+    return png
+
+
 def run_smoke(args: argparse.Namespace) -> int:
     book = Path(args.book).resolve()
     if not book.exists():
@@ -501,6 +520,12 @@ def run_smoke(args: argparse.Namespace) -> int:
             env["CROSSINK_SIMULATOR_SMOKE_HOME_SWIPE"] = "1"
         if args.home_themes:
             env["CROSSINK_SIMULATOR_SMOKE_HOME_THEMES"] = "1"
+        if args.picco_screens:
+            screens = Path(args.picco_screens).resolve()
+            screens.mkdir(parents=True, exist_ok=True)
+            for stale in list(screens.glob("*.pgm")) + list(screens.glob("*.png")):
+                stale.unlink()
+            env["CROSSINK_SIMULATOR_SMOKE_PICCO_SCREENS"] = str(screens)
         if args.theme:
             env["CROSSINK_SIMULATOR_SMOKE_THEME"] = str(THEMES[args.theme])
         if args.headless:
@@ -538,6 +563,16 @@ def run_smoke(args: argparse.Namespace) -> int:
     if "Simulator smoke test passed" not in proc.stdout:
         print("Simulator smoke test did not print its success marker", file=sys.stderr)
         return 2
+
+    if args.picco_screens:
+        if "Simulator smoke test passed: picco screens" not in proc.stdout:
+            print("Simulator did not complete the Picco screen captures", file=sys.stderr)
+            return 2
+        screens = Path(args.picco_screens).resolve()
+        for pgm in sorted(screens.glob("*.pgm")):
+            pgm_to_png(pgm)
+            pgm.unlink()
+        print(f"Picco screens: {len(list(screens.glob('*.png')))} PNGs in {screens}")
 
     if args.bookmarks and "Simulator smoke test passed: bookmarks" not in proc.stdout:
         print("Simulator did not complete bookmark checks", file=sys.stderr)
@@ -623,7 +658,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--factory-flash", action="store_true",
                         help="Use the reported 80 KiB factory partition; verify it remains unchanged (S3 profiles)")
     parser.add_argument("--book", default=str(DEFAULT_BOOK), help="EPUB fixture to copy into the isolated simulator fs_")
-    parser.add_argument("--env", choices=("simulator", "simulator-X3", "x4-classic-simulator", "sticky-simulator", "x4-pro-simulator"), default="simulator",
+    parser.add_argument("--env", choices=("simulator", "simulator-X3", "x4-classic-simulator", "sticky-simulator", "x4-pro-simulator", "picco-simulator"), default="simulator",
                         help="PlatformIO simulator environment to build and run")
     parser.add_argument("--status-bar-lifecycle", action="store_true", help="Exercise reader settings return and reflow")
     parser.add_argument("--wifi-transmit-power", action="store_true", help="Check Wi-Fi power defaults, device picker and persistence")
@@ -685,6 +720,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--interval-layout", action="store_true", help="Check interval picker spacing and touch targets in all rotations and UI scales; captures via --about-captures")
     parser.add_argument("--menu-orientation", action="store_true", help="Check physical menu labels/actions in all rotations independently of reader preferences; captures via --about-captures")
     parser.add_argument("--home-swipe", action="store_true", help="Check bottom-edge Home swipes, ordinary list swipes, and reader menu gestures on touch devices")
+    parser.add_argument("--picco-screens", help="Write one PNG per reachable screen into this directory (picco-simulator)")
     parser.add_argument("--home-themes", action="store_true", help="Compare drawer theme changes with fresh Home renders (X4 Pro)")
     parser.add_argument("--no-build", dest="build", action="store_false", help="Run the existing simulator binary")
     parser.add_argument("--window", dest="headless", action="store_false", help="Show the SDL window instead of using dummy video")

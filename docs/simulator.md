@@ -57,6 +57,27 @@ pio run -e x4-pro-simulator -t run_simulator
 
 The `H` mapping is active only in `x4-pro-simulator`.
 
+## BOOX Picco Simulator
+
+`picco-simulator` runs the simulator's X4 Pro profile (480x800 portrait, touch, frontlight with warmth) as a Picco: no Home key, the Picco's global touch lock, and `CROSSINK_APP_DEVICE_PICCO` / `CROSSINK_APP_PICCO_UI` for app code. `L` toggles a stand-in slide switch (`CROSSPOINT_SIM_SLIDE_SWITCH=on` starts it on). The fetched simulator package needs the repo's shims once per env:
+
+```sh
+pio pkg install -e picco-simulator
+python3 test/integration/ci/patch_simulator_package.py picco-simulator
+pio run -e picco-simulator -t run_simulator
+```
+
+### Screenshots of every screen
+
+The visual gate for the Picco UI work writes one PNG per reachable screen, named after it (`home.png`, `reader.png`, `reader-light-panel.png`, `reader-drawer.png`, `library.png`, `file-browser.png`, `settings-<category>[-<submenu>][-pN].png`, `reading-stats.png`, `bookorbit-catalog.png`, `sleep.png`, ...):
+
+```sh
+pio run -e picco-simulator
+python3 scripts/run_simulator_smoke_test.py --env picco-simulator --no-build --picco-screens ../builds/sim-screens-baseline
+```
+
+The scenario (`src/simulator/PiccoScreensSmokeTest.cpp`) opens the reader with `--book` (default: the rendering-matrix fixture), reaches the light panel and reader drawer with the Picco swipes, and walks every Settings category and submenu page. Captures are the logical framebuffer (black/white, no grayscale passes). It replaces the folder's previous PNGs.
+
 ## Cache Note
 
 On first open of an EPUB, an **Indexing...** popup appears while the section cache is built in `.crosspoint/`.

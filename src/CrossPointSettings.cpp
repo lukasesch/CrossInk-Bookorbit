@@ -20,6 +20,7 @@
 #include <mutex>
 #include <string>
 
+#include "AppCapabilities.h"
 #include "I18nKeys.h"
 #include "QuickActions.h"
 #include "SettingsList.h"
@@ -345,7 +346,7 @@ const char* CrossPointSettings::getDefaultDeviceName() {
 #elif defined(FREEINK_DEVICE_EEGO_A4) && FREEINK_DEVICE_EEGO_A4
   return "Crossink EEGO A4";
 #endif
-#if defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO
+#if CROSSINK_APP_DEVICE_PICCO
   return "CrossInk Picco";
 #endif
   if (BoardConfig::isSticky()) return "Sticky";

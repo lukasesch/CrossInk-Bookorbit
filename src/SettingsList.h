@@ -654,7 +654,7 @@ inline constexpr size_t BASE_SETTINGS_CAPACITY = 106 + BASE_SETTINGS_SCALABLE_FO
                                                  (CROSSINK_APP_CAP_TOUCH ? 9 : 0) + BASE_SETTINGS_KOREADER_ENTRIES -
                                                  (CROSSINK_APP_CAP_SELF_UPDATE ? 0 : 1);
 
-#if FREEINK_DEVICE_PICCO
+#if CROSSINK_APP_DEVICE_PICCO
 inline constexpr size_t SLIDE_SWITCH_SETTINGS_COUNT = 1;
 #else
 inline constexpr size_t SLIDE_SWITCH_SETTINGS_COUNT = 0;

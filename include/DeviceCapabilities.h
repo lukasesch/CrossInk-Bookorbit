@@ -4,6 +4,10 @@
 
 #include "AppCapabilities.h"
 
+#if defined(SIMULATOR) && CROSSINK_APP_DEVICE_PICCO
+#include "simulator/SimulatorSlideSwitch.h"
+#endif
+
 // Current button-only images target X3/X4/X4 Classic. Use the image capability
 // so a failed touch probe on another device cannot advertise front buttons.
 inline constexpr bool deviceHasFrontButtons() { return !CROSSINK_APP_CAP_TOUCH; }
@@ -60,11 +64,12 @@ inline bool deviceSupportsSideButtonChord(const HalGPIO& gpio) {
 #endif
 }
 
-// Two-position slide switch (Picco). The simulator HAL has none.
+// Two-position slide switch (Picco). The simulator HAL has none; picco-simulator
+// stands in a keyboard toggle (src/simulator/SimulatorSlideSwitch.h).
 inline bool deviceHasSlideSwitch(const HalGPIO& gpio) {
 #ifdef SIMULATOR
   (void)gpio;
-  return false;
+  return CROSSINK_APP_DEVICE_PICCO;
 #else
   return gpio.hasToggleSwitch();
 #endif
@@ -73,7 +78,11 @@ inline bool deviceHasSlideSwitch(const HalGPIO& gpio) {
 inline bool deviceSlideSwitchOn(const HalGPIO& gpio) {
 #ifdef SIMULATOR
   (void)gpio;
+#if CROSSINK_APP_DEVICE_PICCO
+  return simulatorSlideSwitchOn();
+#else
   return false;
+#endif
 #else
   return gpio.isToggleSwitchOn();
 #endif

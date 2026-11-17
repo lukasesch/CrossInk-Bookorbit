@@ -281,7 +281,7 @@ void forEachBaseSetting(SettingVisitor visitor, void* context) {
                         StrId::STR_CAT_CONTROLS));
 
   // Listed only on boards with a slide switch (buildControlsSettingsParentList).
-#if FREEINK_DEVICE_PICCO
+#if CROSSINK_APP_DEVICE_PICCO
   // Option order is SlideSwitchAction's order (persisted by index).
   add(SettingInfo::Enum(StrId::STR_SLIDE_SWITCH, &CrossPointSettings::slideSwitchAction,
                         {StrId::STR_FRONTLIGHT, StrId::STR_READER_DARK_MODE, StrId::STR_TOUCH_READER_CONTROLS,

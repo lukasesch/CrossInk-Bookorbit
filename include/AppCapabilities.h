@@ -39,10 +39,30 @@
 #define CROSSINK_APP_DEVICE_X4CLASSIC 0
 #endif
 
-#if defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO
+// picco-simulator sets CROSSINK_APP_DEVICE_PICCO itself: the simulator has no Picco
+// board profile, and FREEINK_DEVICE_PICCO stays reserved for Picco hardware code.
+#if defined(SIMULATOR) && defined(CROSSINK_APP_DEVICE_PICCO)
+#elif defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO
 #define CROSSINK_APP_DEVICE_PICCO 1
 #else
 #define CROSSINK_APP_DEVICE_PICCO 0
+#endif
+
+#if CROSSINK_APP_DEVICE_PICCO != 0 && CROSSINK_APP_DEVICE_PICCO != 1
+#error "CROSSINK_APP_DEVICE_PICCO must be 0 or 1"
+#endif
+
+// The Picco UI (PICCO theme, reader sheet). Set by the picco and picco-simulator envs.
+#ifndef CROSSINK_APP_PICCO_UI
+#define CROSSINK_APP_PICCO_UI 0
+#endif
+
+#if CROSSINK_APP_PICCO_UI != 0 && CROSSINK_APP_PICCO_UI != 1
+#error "CROSSINK_APP_PICCO_UI must be 0 or 1"
+#endif
+
+#if CROSSINK_APP_PICCO_UI && !CROSSINK_APP_DEVICE_PICCO
+#error "CROSSINK_APP_PICCO_UI requires a Picco image"
 #endif
 
 // The image can rewrite itself only with a second OTA slot to write into. The

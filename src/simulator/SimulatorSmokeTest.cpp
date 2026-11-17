@@ -27,6 +27,7 @@
 #include "BookmarkListSmokeTest.h"
 #include "ClippingSelectionSmokeTest.h"
 #include "OpdsCatalogSmokeTest.h"
+#include "PiccoScreensSmokeTest.h"
 #include "PluginSmokeTest.h"
 #include "ReadingUploadSmokeTest.h"
 #include "SilentRestart.h"
@@ -9120,6 +9121,7 @@ class SimulatorSmokeTest {
     if (tickAssetDownloadSmokeTest()) return;
     if (tickOpdsCatalogSmokeTest()) return;
     if (tickBookmarkListSmokeTest()) return;
+    if (tickPiccoScreensSmokeTest()) return;
 
     if (std::getenv("CROSSINK_SIMULATOR_SMOKE_SUPPORT_EXPORT")) {
       tickSupportExport();
