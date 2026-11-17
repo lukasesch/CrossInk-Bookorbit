@@ -39,4 +39,5 @@ struct BookOrbitHomeReadingData {
   uint16_t yearDaysRead = 0;
   uint32_t yearMinutes = 0;
   uint32_t yearBestMonthMinutes = 0;
+  uint32_t currentMonthMinutes = 0;  // the calendar month holding today
 };

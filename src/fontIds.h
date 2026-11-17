@@ -26,3 +26,12 @@ static_assert(BITTER_16_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(SMALL_FONT_ID != 0, "Font ID collision with sentinel");
+
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+#define LITERATA_15_FONT_ID (1775614833)
+#define LITERATA_10_FONT_ID (143311497)
+#define FIGURES_27_FONT_ID (1406875624)
+static_assert(LITERATA_15_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(LITERATA_10_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(FIGURES_27_FONT_ID != 0, "Font ID collision with sentinel");
+#endif

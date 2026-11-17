@@ -54,3 +54,14 @@ for id in \
   UI_10_FONT_ID UI_12_FONT_ID SMALL_FONT_ID; do
   echo "static_assert(${id} != 0, \"Font ID collision with sentinel\");"
 done
+
+# Picco Home fonts exist only in CROSSINK_APP_PICCO_UI images.
+echo ""
+echo "#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI"
+emit_hash_define LITERATA_15_FONT_ID ./literata_15_semibold.h
+emit_hash_define LITERATA_10_FONT_ID ./literata_10_semibold.h
+emit_hash_define FIGURES_27_FONT_ID ./inter_27_figures.h
+for id in LITERATA_15_FONT_ID LITERATA_10_FONT_ID FIGURES_27_FONT_ID; do
+  echo "static_assert(${id} != 0, \"Font ID collision with sentinel\");"
+done
+echo "#endif"

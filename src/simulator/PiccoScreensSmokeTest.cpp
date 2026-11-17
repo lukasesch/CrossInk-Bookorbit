@@ -14,10 +14,13 @@
 #include <vector>
 
 #include "AppCapabilities.h"
+#include "BookOrbitCredentialStore.h"
 #include "CrossPointSettings.h"
 #include "activities/ActivityManager.h"
 #include "activities/boot_sleep/SleepActivity.h"
 #include "activities/home/HomeActivity.h"
+#include "activities/reader/ReadingDailyMinutes.h"
+#include "activities/reader/ReadingStatsUtils.h"
 #include "activities/settings/SettingsActivity.h"
 #include "components/UITheme.h"
 
@@ -130,6 +133,35 @@ struct PiccoScreensSmokeTest {
       mappedInputManager.simulatorInjectTouchRelease(x, y);
       return SETTLE_TICKS;
     });
+  }
+
+  void addPress(const MappedInputManager::Button button) {
+    steps.push_back([button] {
+      mappedInputManager.simulatorInjectPress(button);
+      return 0;
+    });
+    steps.push_back([button] {
+      mappedInputManager.simulatorInjectRelease(button);
+      return SETTLE_TICKS;
+    });
+  }
+
+  // A week of reading for Home's stats card, today last (minutes as on the T_Combined board).
+  static void seedReadingWeek() {
+    ReadingStatsDateTime now;
+    if (!getCurrentLocalReadingStatsDateTimeAnyClock(now)) {
+      LOG_INF("SMOKE", "Picco screens: no clock, Home stats stay empty");
+      return;
+    }
+    static constexpr uint32_t kMinutes[7] = {40, 70, 25, 85, 55, 30, 47};
+    for (int i = 0; i < 7; ++i) {
+      ReadingStatsDateTime start = now;
+      addDaysToReadingStatsDate(start.date, i - 6);
+      start.hour = 6;
+      start.minute = 0;
+      start.second = 0;
+      ReadingDailyMinutes::record(&start, kMinutes[i] * 60u);
+    }
   }
 
   void addBack() {
@@ -246,12 +278,21 @@ struct PiccoScreensSmokeTest {
 
     // Home with the book just read, and its light panel (top-edge swipe down).
     steps.push_back([] {
+      seedReadingWeek();
       activityManager.goHome();
       return SETTLE_TICKS;
     });
     steps.push_back([this] {
       expect("Home", "go Home");
       renderAndCapture("home");
+      return 0;
+    });
+    // Rocker focus: the first press shows the ring on Resume, the second moves it on.
+    addPress(MappedInputManager::Button::Down);
+    addPress(MappedInputManager::Button::Down);
+    steps.push_back([this] {
+      expect("Home", "Home focus");
+      renderAndCapture("home-focus-stats");
       return 0;
     });
     addSwipe(width / 2, 4, height / 2);
@@ -331,6 +372,20 @@ struct PiccoScreensSmokeTest {
     steps.push_back([this] {
       expect("BookOrbitCatalogBrowser", "go to BookOrbit catalog");
       renderAndCapture("bookorbit-catalog");
+      return 0;
+    });
+
+    // Home with a BookOrbit account (never synced): the header's sync button and tile hint.
+    steps.push_back([] {
+      BOOKORBIT_STORE.setServerUrl("http://bookorbit.invalid");
+      BOOKORBIT_STORE.setCredentials("reader", "smoke");
+      activityManager.goHome();
+      return SETTLE_TICKS;
+    });
+    steps.push_back([this] {
+      expect("Home", "Home with BookOrbit");
+      renderAndCapture("home-bookorbit");
+      BOOKORBIT_STORE.clearCredentials();
       return 0;
     });
 

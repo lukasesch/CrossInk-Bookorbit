@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "./FileBrowserActivity.h"
+#include "AppCapabilities.h"
 #include "QuickActions.h"
 #include "activities/Activity.h"
 #include "activities/reader/BookReadingStats.h"
@@ -18,6 +19,9 @@
 #include "components/CoverGridHomeUi.h"
 #include "components/OptionPopup.h"
 #include "components/themes/bookorbit/BookOrbitHomeUi.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/home/PiccoHomeUi.h"
+#endif
 #include "util/ButtonNavigator.h"
 
 struct RecentBook;
@@ -40,6 +44,9 @@ class HomeActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   std::unique_ptr<CoverGridHomeUi> coverGridUi;
   std::unique_ptr<BookOrbitHomeUi> bookOrbitUi;
+#if CROSSINK_APP_PICCO_UI
+  std::unique_ptr<PiccoHomeUi> piccoUi;
+#endif
   bool gridHasContinueReading = false;
   int selectorIndex = 0;
   int lastCarouselBookIndex = 0;  // remembered position when leaving carousel row
@@ -142,7 +149,8 @@ class HomeActivity final : public Activity {
   int getHighlightedBookIndex() const;
   int getVisibleRecentBookCount() const;
   bool canSwapHomeBook() const;
-  void showNextRecentBookOnHome();
+  // step 1 shows the next recent book, -1 the previous one.
+  void showNextRecentBookOnHome(int step = 1);
   // Whether the caller already holds the (non-recursive) RenderLock, as
   // ActivityManager does around onFrontlightPanelClosed().
   enum class RenderLockHeld : uint8_t { No, Yes };
@@ -158,6 +166,12 @@ class HomeActivity final : public Activity {
   void activateBookOrbitStop(const BookOrbitHomeUi::Stop& stop);
   void loadBookOrbitThumbnails();
   void loadAllBookStats();
+#if CROSSINK_APP_PICCO_UI
+  void beginPiccoUi();
+  void loopPiccoHome();
+  void activatePiccoAction(PiccoHomeUi::Action action);
+  void loadPiccoCover();
+#endif
   void loadRecentCovers(int coverHeight);
 
  public:

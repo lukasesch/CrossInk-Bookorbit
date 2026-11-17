@@ -236,6 +236,22 @@ python fontconvert.py inter_8_bold 8 \
   ../builtinFonts/source/NotoSansArabic/NotoSansArabic-Bold.ttf \
   --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > ../builtinFonts/inter_8_bold.h
 
+# Picco Home (CROSSINK_APP_PICCO_UI builds only). Literata ships as a variable font
+# (google/fonts ofl/literata); instance weight 600 at the optical size each face is shown at:
+#   fonttools varLib.instancer 'Literata[opsz,wght].ttf' wght=600 opsz=32 -o Literata-SemiBold-opsz32.ttf
+#   fonttools varLib.instancer 'Literata[opsz,wght].ttf' wght=600 opsz=21 -o Literata-SemiBold-opsz21.ttf
+# Literata has no Hebrew or Arabic, so these faces carry the default intervals only.
+
+python fontconvert.py literata_15_semibold 15 \
+  ../builtinFonts/source/Literata/Literata-SemiBold-opsz32.ttf > ../builtinFonts/literata_15_semibold.h
+python fontconvert.py literata_10_semibold 10 \
+  ../builtinFonts/source/Literata/Literata-SemiBold-opsz21.ttf > ../builtinFonts/literata_10_semibold.h
+
+# Picco Home key figures: digits, space and percent only.
+python fontconvert.py inter_27_figures 27 ../builtinFonts/source/Inter/Inter-Bold.ttf --no-default-intervals \
+  --additional-intervals 0x20,0x20 --additional-intervals 0x25,0x25 --additional-intervals 0x30,0x39 \
+  > ../builtinFonts/inter_27_figures.h
+
 echo ""
 echo "Running compression verification..."
 python verify_compression.py ../builtinFonts/

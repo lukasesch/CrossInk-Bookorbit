@@ -102,7 +102,11 @@ static_assert(isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::
                   isNetworkBootTargetValue(static_cast<uint32_t>(NetworkBootTarget::BOOKORBIT_HOME_SHELVES)),
               "Every network boot target must pass RTC target validation");
 
-void silentRestart();                                            // home screen
+void silentRestart();  // home screen
+// Picco Home: back to Home after a BookOrbit Home sync that found no Wi-Fi, which the
+// header's sync button then shows as Offline until the next restart.
+void silentRestartAfterOfflineHomeSync();
+bool homeSyncWentOffline();
 void silentRestartToReader(bool cleanImageBaseOnEntry = false);  // currently-open EPUB (APP_STATE.openEpubPath)
 // Reboots immediately after an activity releases exclusive raw storage.
 void restartToHomeAfterStorageHandoff();

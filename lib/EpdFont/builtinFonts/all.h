@@ -48,4 +48,8 @@
 // Picco section labels only; other images never link it.
 #if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
 #include <builtinFonts/inter_8_bold.h>
+// Picco Home: hero and cover titles, key figures.
+#include <builtinFonts/inter_27_figures.h>
+#include <builtinFonts/literata_10_semibold.h>
+#include <builtinFonts/literata_15_semibold.h>
 #endif

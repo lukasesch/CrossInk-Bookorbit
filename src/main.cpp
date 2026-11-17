@@ -258,6 +258,13 @@ EpdFont smallFont(&inter_8_regular);
 // Bold style for Picco's section labels; other images keep the regular-only family.
 EpdFont smallBoldFont(&inter_8_bold);
 EpdFontFamily smallFontFamily(&smallFont, &smallBoldFont);
+// Picco Home: Literata titles (one weight each) and the key figures.
+EpdFont literata15Font(&literata_15_semibold);
+EpdFontFamily literata15FontFamily(&literata15Font);
+EpdFont literata10Font(&literata_10_semibold);
+EpdFontFamily literata10FontFamily(&literata10Font);
+EpdFont figures27Font(&inter_27_figures);
+EpdFontFamily figures27FontFamily(&figures27Font);
 #else
 EpdFontFamily smallFontFamily(&smallFont);
 #endif
@@ -461,6 +468,18 @@ static void silentRestartToHome(const uint32_t payload, const char* const descri
 }
 
 void silentRestart() { silentRestartToHome(0, "target=home"); }
+
+#if CROSSINK_APP_PICCO_UI
+// SILENT_REBOOT_TARGET_HOME payload bit, read once at boot into homeSyncOffline.
+constexpr uint32_t SILENT_REBOOT_HOME_SYNC_OFFLINE = 1u << 0;
+static bool homeSyncOffline = false;
+
+void silentRestartAfterOfflineHomeSync() {
+  silentRestartToHome(SILENT_REBOOT_HOME_SYNC_OFFLINE, "target=home, sync offline");
+}
+
+bool homeSyncWentOffline() { return homeSyncOffline; }
+#endif
 
 void restartToHomeAfterStorageHandoff() {
   // Keep this distinct from other callers: USB Drive has released raw SD
@@ -1700,6 +1719,11 @@ void setupDisplayAndFonts(const bool seamless, const bool loadReaderResources, c
   renderer.insertFont(UI_10_FONT_ID, ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, smallFontFamily);
+#if CROSSINK_APP_PICCO_UI
+  renderer.insertFont(LITERATA_15_FONT_ID, literata15FontFamily);
+  renderer.insertFont(LITERATA_10_FONT_ID, literata10FontFamily);
+  renderer.insertFont(FIGURES_27_FONT_ID, figures27FontFamily);
+#endif
   // Network screens can return Home without another reboot. Keep the lookup
   // callback available for the next reader, without loading font data here.
   sdFontSystem.begin(renderer, loadReaderResources);
@@ -1780,6 +1804,10 @@ void setup() {
   const bool cleanImageBaseOnEntry =
       snapshotTarget == SILENT_REBOOT_TARGET_READER && (snapshotPayload & SILENT_REBOOT_READER_CLEAN_IMAGE_BASE) != 0;
   const bool isNetworkResume = snapshotTarget >= static_cast<uint32_t>(NetworkBootTarget::OTA);
+#if CROSSINK_APP_PICCO_UI
+  homeSyncOffline =
+      snapshotTarget == SILENT_REBOOT_TARGET_HOME && (snapshotPayload & SILENT_REBOOT_HOME_SYNC_OFFLINE) != 0;
+#endif
   sleepSyncBoot = snapshotTarget == static_cast<uint32_t>(NetworkBootTarget::BOOKORBIT_SLEEP_SYNC);
   // Network screens need the reader-sized render stack on S3, including OTA
   // and KOReader Auth after their Wi-Fi child completes. C3 retains the smaller

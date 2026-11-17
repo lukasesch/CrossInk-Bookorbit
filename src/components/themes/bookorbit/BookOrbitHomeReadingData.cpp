@@ -26,6 +26,7 @@ void BookOrbitHomeReadingData::compute(const BookOrbitHomeSource& data, const Bo
   yearDaysRead = 0;
   yearMinutes = 0;
   yearBestMonthMinutes = 0;
+  currentMonthMinutes = 0;
   hasForecast = false;
   longestStreak = data.stats != nullptr ? data.stats->displayLongestReadingStreak() : 0;
   weekdayMinutes.fill(0);
@@ -118,6 +119,7 @@ void BookOrbitHomeReadingData::compute(const BookOrbitHomeSource& data, const Bo
     if (day + kForecastPaceDays > todayIndex) recentMinutes += minutes;
   }
   if (monthIsWhole) yearBestMonthMinutes = std::max(yearBestMonthMinutes, monthMinutes);
+  currentMonthMinutes = monthMinutes;
   streak = run;
   if (snapshot) {
     longestStreak = std::max(longestStreak, static_cast<uint16_t>(snapshot->longestStreak));

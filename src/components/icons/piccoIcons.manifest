@@ -15,3 +15,8 @@ picco_plus = plus
 picco_arrow_right = arrow-right
 picco_wifi_off = wifi-off
 picco_alert = circle-alert
+# Home tiles; drawn from the T_Combined board (not Lucide), SVGs kept beside the Lucide ones.
+picco_orbit = picco-orbit
+picco_books = picco-books
+picco_folder = picco-folder
+picco_sliders = picco-sliders

@@ -279,7 +279,7 @@ HomeMenuEntries buildHomeMenuItems(bool hasPlugins, bool hasReadingStats, bool h
 HomeMenuEntries buildMinimalMenuItems(bool hasPlugins, bool hasReadingStats, bool hasBookmarks, bool hasClippings) {
   HomeMenuEntries items;
   // The BookOrbit theme has no Browse or Settings hint to reach the rest, so its menu holds them too.
-  const bool fullMenu = UITheme::hasBookOrbitHome();
+  const bool fullMenu = UITheme::hasBookOrbitHome() || UITheme::isPicco();
   if (SETTINGS.isLibraryFileBrowserSwapped()) {
     items.push({tr(STR_BROWSE_FILES), Folder, HomeMenuAction::BrowseFiles});
   } else {
@@ -350,10 +350,11 @@ int findMenuActionIndex(const HomeMenuEntries& items, HomeMenuAction action) {
 // That menu never holds Continue Reading, which stands for "none yet".
 HomeMenuAction lastMinimalMenuAction = HomeMenuAction::ContinueReading;
 
-// The BookOrbit theme draws its own Home; should that UI fail to allocate, it is Minimal.
+// The BookOrbit and Picco themes draw their own Home; should that UI fail to allocate, it is
+// Minimal. Their Back menu is Minimal's too.
 bool isMinimalTheme() {
   return static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::MINIMAL ||
-         UITheme::hasBookOrbitHome();
+         UITheme::hasBookOrbitHome() || UITheme::isPicco();
 }
 
 bool isDashboardTheme() {
@@ -829,6 +830,12 @@ void HomeActivity::onEnter() {
     bookOrbitUi = makeUniqueNoThrow<BookOrbitHomeUi>(renderer, mappedInput);
     if (!bookOrbitUi) LOG_ERR("HOME", "Cannot allocate BookOrbit Home; using Minimal");
   }
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    piccoUi = makeUniqueNoThrow<PiccoHomeUi>(renderer, mappedInput);
+    if (!piccoUi) LOG_ERR("HOME", "Cannot allocate Picco Home; using Minimal");
+  }
+#endif
   const bool isCarouselTheme =
       static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA_CAROUSEL;
 
@@ -850,10 +857,14 @@ void HomeActivity::onEnter() {
   carouselWarmupPending = isCarouselTheme;
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int recentBooksToLoad =
+  int recentBooksToLoad =
       coverGridUi   ? CoverGridHomeUi::MAX_BOOKS
       : bookOrbitUi ? BookOrbitHomeUi::MAX_BOOKS
                     : std::min(kMaxCachedBooks, std::max(metrics.homeRecentBooksCount, HOME_BOOK_SWAP_RECENT_COUNT));
+#if CROSSINK_APP_PICCO_UI
+  // The Picco hero swipes both ways through the recent books.
+  if (piccoUi) recentBooksToLoad = kMaxCachedBooks;
+#endif
   RECENT_BOOKS.ensureLoaded();
   loadRecentBooks(recentBooksToLoad);
   gridHasContinueReading = !recentBooks.empty();
@@ -889,8 +900,11 @@ void HomeActivity::onEnter() {
   if (isCarouselTheme) {
     loadAllBookStats();
   }
-  updateHighlightedBookContext(bookOrbitUi != nullptr);
+  updateHighlightedBookContext(bookOrbitUi != nullptr || UITheme::isPicco());
   if (bookOrbitUi) beginBookOrbitUi();
+#if CROSSINK_APP_PICCO_UI
+  if (piccoUi) beginPiccoUi();
+#endif
 
   if (coverGridUi) {
     const bool hasBookOrbit = BOOKORBIT_STORE.hasCredentials();
@@ -921,7 +935,7 @@ void HomeActivity::onEnter() {
     if (tabPosition >= 0) selectorIndex = static_cast<int>(recentBooks.size()) + tabPosition;
     coverGridUi->begin(recentBooks, hasPlugins, hasBookOrbit, gridHasContinueReading,
                        gridHasContinueReading ? loadRecentBookProgress(recentBooks.front()) : -1.0f);
-  } else if (initialMenuItem != HomeMenuItem::NONE && !bookOrbitUi) {
+  } else if (initialMenuItem != HomeMenuItem::NONE && !bookOrbitUi && !UITheme::isPicco()) {
     const bool includeContinueReading = metrics.homeContinueReadingInMenu && !recentBooks.empty();
     const auto menuItems =
         buildSelectableHomeMenuItems(hasPlugins, hasReadingStats, hasBookmarks, hasClippings, includeContinueReading);
@@ -966,12 +980,16 @@ bool HomeActivity::canSwapHomeBook() const {
   return !coverGridUi && UITheme::getInstance().getMetrics().homeRecentBooksCount == 1 && recentBooks.size() > 1;
 }
 
-void HomeActivity::showNextRecentBookOnHome() {
+void HomeActivity::showNextRecentBookOnHome(const int step) {
   if (!canSwapHomeBook()) {
     return;
   }
 
-  std::rotate(recentBooks.begin(), recentBooks.begin() + 1, recentBooks.end());
+  if (step < 0) {
+    std::rotate(recentBooks.begin(), recentBooks.end() - 1, recentBooks.end());
+  } else {
+    std::rotate(recentBooks.begin(), recentBooks.begin() + 1, recentBooks.end());
+  }
   selectorIndex = 0;
   lastCarouselBookIndex = 0;
   bookStatsCached = false;
@@ -1073,7 +1091,7 @@ void HomeActivity::updateHighlightedBookContext(const bool allowChapterTitleRead
   if (idx >= 0) {
     const RecentBook& book = recentBooks[idx];
     const bool isEpub = FsHelpers::hasEpubExtension(book.path);
-    const bool loadChapterTitle = isDashboardTheme() || UITheme::hasBookOrbitHome();
+    const bool loadChapterTitle = isDashboardTheme() || UITheme::hasBookOrbitHome() || UITheme::isPicco();
     if (useCachedStats) {
       currentBookStats = visibleRecentBookStats(book, cachedBookStats[idx]);
       currentBookProgressPercent = cachedBookProgress[idx];
@@ -1102,6 +1120,16 @@ void HomeActivity::updateHighlightedBookContext(const bool allowChapterTitleRead
       beginBookOrbitUi();
     }
   }
+#if CROSSINK_APP_PICCO_UI
+  if (piccoUi && firstRenderDone) {
+    if (lockHeld == RenderLockHeld::Yes) {
+      beginPiccoUi();
+    } else {
+      RenderLock lock;
+      beginPiccoUi();
+    }
+  }
+#endif
 }
 
 void HomeActivity::beginBookOrbitUi() {
@@ -1303,11 +1331,155 @@ void HomeActivity::loadBookOrbitThumbnails() {
   if (showingLoading) requestUpdate();
 }
 
+#if CROSSINK_APP_PICCO_UI
+void HomeActivity::beginPiccoUi() {
+  BookOrbitHomeSource source;
+  source.books = &recentBooks;
+  source.stats = showAllDevicesStats ? &allDevicesGlobalStats : &globalStats;
+  source.currentBookStats = &currentBookStats;
+  source.currentBookProgress = currentBookProgressPercent;
+  source.chapterTitle = &currentBookChapterTitle;
+  source.recentBookCount = RECENT_BOOKS.getBooks().size();
+  source.localFinishedBooks = globalStats.completedBooks;
+  piccoUi->begin(source);
+}
+
+void HomeActivity::loopPiccoHome() {
+  if (waitingForInitialFrontRelease()) return;
+
+  const auto swapBook = [this](const int step) {
+    showNextRecentBookOnHome(step);
+    recentsLoaded = false;  // the new front book may still need its cover thumbnail
+  };
+
+  int tapped = -1;
+  if (mappedInput.wasItemTapped(tapped)) {
+    activatePiccoAction(piccoUi->actionForTap(tapped));
+    return;
+  }
+  MappedInputManager::SwipeDir swipe = MappedInputManager::SwipeDir::None;
+  int startX = 0;
+  int startY = 0;
+  int endX = 0;
+  int endY = 0;
+  if (mappedInput.wasSwipeWithPoints(swipe, startX, startY, endX, endY)) {
+    switch (swipe) {
+      case MappedInputManager::SwipeDir::Left:
+      case MappedInputManager::SwipeDir::Right:
+        if (piccoUi->heroContains(startX, startY)) swapBook(swipe == MappedInputManager::SwipeDir::Left ? 1 : -1);
+        return;
+      case MappedInputManager::SwipeDir::Up:
+        openMinimalMenu();
+        return;
+      case MappedInputManager::SwipeDir::Down:
+      case MappedInputManager::SwipeDir::None:
+        break;
+    }
+  }
+
+  // A press seen here: the release that left the previous screen can arrive after Home opens.
+  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) backPressSeen = true;
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) && backPressSeen) {
+    openMinimalMenu();
+    return;
+  }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    activatePiccoAction(piccoUi->focusedAction());
+    return;
+  }
+  if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+    swapBook(-1);
+    return;
+  }
+  if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+    swapBook(1);
+    return;
+  }
+  const auto moveFocus = [this](const int delta) {
+    piccoUi->moveFocus(delta);
+    requestUpdate();
+  };
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [&] { moveFocus(-1); });
+  buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [&] { moveFocus(1); });
+}
+
+void HomeActivity::activatePiccoAction(const PiccoHomeUi::Action action) {
+  switch (action) {
+    case PiccoHomeUi::Action::OpenBook:
+      if (!recentBooks.empty()) onSelectBook(recentBooks.front().path);
+      break;
+    case PiccoHomeUi::Action::OpenLibrary:
+      onLibraryOpen();
+      break;
+    case PiccoHomeUi::Action::OpenStats:
+      onReadingStatsOpen();
+      break;
+    case PiccoHomeUi::Action::OpenCatalog:
+      activityManager.goToBookOrbitCatalog();
+      break;
+    case PiccoHomeUi::Action::OpenFiles:
+      onFileBrowserOpen();
+      break;
+    case PiccoHomeUi::Action::OpenSettings:
+      onSettingsOpen();
+      break;
+    case PiccoHomeUi::Action::Refresh: {
+      // Show "Syncing..." before the restart into the sync's own network boot.
+      {
+        RenderLock lock;
+        piccoUi->showSyncing();
+      }
+      requestUpdateAndWait();
+      silentRestartToNetwork(NetworkBootTarget::BOOKORBIT_HOME_REFRESH);
+      break;
+    }
+    case PiccoHomeUi::Action::None:
+      break;
+  }
+}
+
+// The hero's cover at exactly its slot size, generated once per book like the BookOrbit Home's.
+void HomeActivity::loadPiccoCover() {
+  recentsLoaded = true;
+  if (recentBooks.empty()) return;
+  RecentBook& book = recentBooks.front();
+  if (book.coverState == RecentBook::CoverState::Missing || !Storage.exists(book.path.c_str())) return;
+  const std::string path = PiccoHomeUi::coverPath(book);
+  if (path.empty() || Storage.exists(path.c_str())) return;
+
+  recentsLoading = true;
+  const Rect popupRect = GUI.drawPopup(renderer, tr(STR_LOADING));
+  GUI.fillPopupProgress(renderer, popupRect, 10);
+  if (FsHelpers::hasEpubExtension(book.path)) {
+    Epub epub(book.path, "/.crosspoint");
+    if (!epub.load(true, true, Epub::XLocationLoadMode::Skip)) {
+      LOG_ERR("HOME", "Cannot load EPUB cache for thumbnail: %s", book.path.c_str());
+    } else if (!epub.generateAdaptiveThumbBmp(PiccoHomeUi::kCoverWidth, PiccoHomeUi::kCoverHeight, &renderer,
+                                              SETTINGS.getReaderFontId()) &&
+               !epub.hasCoverImage()) {
+      markCoverMissing(book);
+    }
+  } else if (FsHelpers::hasXtcExtension(book.path)) {
+    Xtc xtc(book.path, "/.crosspoint");
+    if (xtc.load()) {
+      xtc.generateThumbBmp(static_cast<uint16_t>(PiccoHomeUi::kCoverWidth),
+                           static_cast<uint16_t>(PiccoHomeUi::kCoverHeight));
+    }
+  }
+  recentsLoading = false;
+  // The popup is still in the framebuffer; PiccoHomeUi repaints when it finds that.
+  requestUpdate();
+}
+#endif
+
 void HomeActivity::onExit() {
   Activity::onExit();
 
   coverGridUi.reset();
   bookOrbitUi.reset();
+#if CROSSINK_APP_PICCO_UI
+  piccoUi.reset();
+#endif
   carouselMenuTouchDownIndex = -1;
   freeCoverBuffer();
   gCarouselCache.invalidate();
@@ -1672,6 +1844,12 @@ void HomeActivity::loop() {
     loopBookOrbitHome();
     return;
   }
+#if CROSSINK_APP_PICCO_UI
+  if (piccoUi && !minimalMenuOpen) {
+    loopPiccoHome();
+    return;
+  }
+#endif
 
   if (usesMinimalHomeInteraction()) {
     const int pressedFrontButton = mappedInput.getPressedFrontButton();
@@ -2006,9 +2184,7 @@ void HomeActivity::loop() {
     return;
   }
 
-  // Picco uses Lyra's Home until its own lands.
-  if ((static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA ||
-       UITheme::isPicco()) &&
+  if (static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA &&
       mappedInput.hasTouch() && canSwapHomeBook() && mappedInput.wasSwipe() == MappedInputManager::SwipeDir::Left) {
     showNextRecentBookOnHome();
     return;
@@ -2210,8 +2386,8 @@ void HomeActivity::loop() {
     // (Settings, last of nine) stay within reach. The swipe is clamped, not wrapped: reaching
     // the end of a list should feel like the end, not a jump back to the top.
     const auto uiTheme = static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme);
-    const bool pagedLyraMenu = uiTheme == CrossPointSettings::UI_THEME::LYRA ||
-                               uiTheme == CrossPointSettings::UI_THEME::LYRA_3_COVERS || UITheme::isPicco();
+    const bool pagedLyraMenu =
+        uiTheme == CrossPointSettings::UI_THEME::LYRA || uiTheme == CrossPointSettings::UI_THEME::LYRA_3_COVERS;
     if (pagedLyraMenu && mappedInput.hasTouch()) {
       MappedInputManager::SwipeDir swipe = MappedInputManager::SwipeDir::None;
       int startX = 0;
@@ -2368,6 +2544,15 @@ void HomeActivity::render(RenderLock&&) {
     if (!recentsLoaded && !recentsLoading) loadBookOrbitThumbnails();
     return;
   }
+#if CROSSINK_APP_PICCO_UI
+  if (piccoUi && !minimalMenuOpen) {
+    piccoUi->render(initialRefreshMode);
+    initialRefreshMode = HalDisplay::FAST_REFRESH;
+    firstRenderDone = true;
+    if (!recentsLoaded && !recentsLoading) loadPiccoCover();
+    return;
+  }
+#endif
 
   if (usesMinimalHomeInteraction()) {
     renderer.clearScreen();

@@ -7,6 +7,7 @@
 #include <Logging.h>
 #include <WallClock.h>
 
+#include "AppCapabilities.h"
 #include "BookOrbitHomeStore.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
@@ -25,7 +26,11 @@ void BookOrbitHomeRefreshActivity::onEnter() {
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) {
                            if (result.isCancelled) {
+#if CROSSINK_APP_PICCO_UI
+                             silentRestartAfterOfflineHomeSync();
+#else
                              silentRestart();
+#endif
                              return;
                            }
                            // Out of this callback: the session belongs on loop()'s stack.
