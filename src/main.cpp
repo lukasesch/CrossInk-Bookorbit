@@ -254,7 +254,13 @@ EpdFontFamily bitter16FontFamily(&bitter16RegularFont, &bitter16BoldFont, &bitte
 
 #endif
 EpdFont smallFont(&inter_8_regular);
+#if CROSSINK_APP_PICCO_UI
+// Bold style for Picco's section labels; other images keep the regular-only family.
+EpdFont smallBoldFont(&inter_8_bold);
+EpdFontFamily smallFontFamily(&smallFont, &smallBoldFont);
+#else
 EpdFontFamily smallFontFamily(&smallFont);
+#endif
 
 const EpdFont uiSymbols10Font(&ui_symbols_10);
 

@@ -45,3 +45,7 @@
 #include <builtinFonts/inter_12_bold.h>
 #include <builtinFonts/inter_12_regular.h>
 #include <builtinFonts/inter_8_regular.h>
+// Picco section labels only; other images never link it.
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+#include <builtinFonts/inter_8_bold.h>
+#endif

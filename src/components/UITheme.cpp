@@ -108,6 +108,7 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
   if (type == CrossPointSettings::UI_THEME::COVER_GRID && !supportsCoverGrid()) {
     type = CrossPointSettings::UI_THEME::LYRA;
   }
+  if (!CrossPointSettings::isKnownUiTheme(static_cast<uint8_t>(type))) type = CrossPointSettings::UI_THEME::LYRA;
   switch (type) {
     case CrossPointSettings::UI_THEME::CLASSIC:
       LOG_DBG("UI", "Using Classic theme");
@@ -147,6 +148,14 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       currentTheme = std::make_unique<DashboardTheme>();
       currentMetrics = &DashboardMetrics::values;
       break;
+#if CROSSINK_APP_PICCO_UI
+    // Lyra until PiccoTheme lands.
+    case CrossPointSettings::UI_THEME::PICCO:
+      LOG_DBG("UI", "Using Picco theme");
+      currentTheme = std::make_unique<LyraTheme>();
+      currentMetrics = &LyraMetrics::values;
+      break;
+#endif
     default:
       LOG_ERR("UI", "Unknown theme %d, falling back to Classic", static_cast<int>(type));
       currentTheme = std::make_unique<BaseTheme>();

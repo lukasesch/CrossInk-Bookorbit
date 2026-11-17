@@ -532,7 +532,7 @@ struct ReaderDrawerLayoutSmokeTest {
     const auto savedStatusSize = SETTINGS.displayStatusBarTextSize;
     bool valid = true;
     unsigned cases = 0;
-    for (uint8_t theme = 0; theme < CrossPointSettings::UI_THEME_COUNT; ++theme) {
+    for (const uint8_t theme : CrossPointSettings::KNOWN_UI_THEMES) {
       SETTINGS.uiTheme = theme;
       UITheme::getInstance().reload();
       for (unsigned orientation = 0; orientation < 4; ++orientation) {
@@ -2126,7 +2126,7 @@ struct ScreenCalibrationSmokeTest {
     std::vector<FootnoteEntry> entries(40);
     for (auto& entry : entries) std::strcpy(entry.number, "Calibration boundary row");
     bool valid = true;
-    for (int variant = 0; variant < CrossPointSettings::UI_THEME_COUNT; ++variant) {
+    for (const uint8_t variant : CrossPointSettings::KNOWN_UI_THEMES) {
       SETTINGS.uiTheme = variant;
       UITheme::getInstance().reload();
       for (unsigned index = 0; index < std::size(cases); ++index) {
@@ -3481,7 +3481,7 @@ class SimulatorSmokeTest {
     }
 
     const int theme = std::atoi(raw);
-    if (theme < 0 || theme >= CrossPointSettings::UI_THEME_COUNT) {
+    if (theme < 0 || theme > 255 || !CrossPointSettings::isKnownUiTheme(static_cast<uint8_t>(theme))) {
       fail("Invalid smoke test theme index: %d", theme);
     }
 
@@ -4490,6 +4490,29 @@ class SimulatorSmokeTest {
     SETTINGS.fromJson(original.as<JsonVariantConst>());
     ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
     LOG_INF("SMOKE", "Simulator smoke test passed: Rotate Page 180 shortcut pickers and EPUB/TXT handlers");
+  }
+
+  // PICCO (64) sits outside the contiguous theme range: it must survive a save and reload
+  // where the build offers it. Elsewhere the JSON loader rejects it and keeps the boot default (LYRA).
+  static void verifyUiThemePersistence() {
+    JsonDocument original;
+    SETTINGS.toJson(original);
+    constexpr uint8_t expected = CrossPointSettings::isKnownUiTheme(CrossPointSettings::PICCO)
+                                     ? static_cast<uint8_t>(CrossPointSettings::PICCO)
+                                     : static_cast<uint8_t>(CrossPointSettings::LYRA);
+    SETTINGS.uiTheme = CrossPointSettings::PICCO;
+    if (!SETTINGS.saveToFile()) fail("Cannot save the Picco theme");
+    SETTINGS.uiTheme = CrossPointSettings::LYRA;
+    if (!SETTINGS.loadFromFile() || SETTINGS.uiTheme != expected)
+      fail("Picco theme reload: expected %u, found %u", static_cast<unsigned>(expected),
+           static_cast<unsigned>(SETTINGS.uiTheme));
+    SETTINGS.uiTheme = 200;
+    UITheme::getInstance().reload();
+    SETTINGS.fromJson(original.as<JsonVariantConst>());
+    if (!SETTINGS.saveToFile()) fail("Cannot restore settings after the Picco theme check");
+    UITheme::getInstance().reload();
+    LOG_INF("SMOKE", "Simulator smoke test passed: UI theme persistence (Picco -> %u)",
+            static_cast<unsigned>(expected));
   }
 
   static void verifyWifiTransmitPowerSettings() {
@@ -5749,7 +5772,7 @@ class SimulatorSmokeTest {
       GUI.drawReaderStatusBar(renderer, ReaderStatusBarPosition::Bottom, content, &centeredBar);
       capture("centered-long-title-bookmarked");
     }
-    for (uint8_t theme = 0; theme < CrossPointSettings::UI_THEME_COUNT; ++theme) {
+    for (const uint8_t theme : CrossPointSettings::KNOWN_UI_THEMES) {
       if (theme == CrossPointSettings::COVER_GRID && !UITheme::supportsCoverGrid()) continue;
       SETTINGS.uiTheme = theme;
       UITheme::getInstance().reload();
@@ -5840,7 +5863,7 @@ class SimulatorSmokeTest {
     // Cached languages stay pinned until reboot. Run the same render matrix
     // for each language through the runner's --language-file boot fixture.
     const auto language = I18N.getLanguage();
-    for (uint8_t theme = 0; theme < CrossPointSettings::UI_THEME_COUNT; ++theme) {
+    for (const uint8_t theme : CrossPointSettings::KNOWN_UI_THEMES) {
       if (theme == CrossPointSettings::COVER_GRID && !UITheme::supportsCoverGrid()) continue;
       SETTINGS.uiTheme = theme;
       UITheme::getInstance().reload();
@@ -9700,6 +9723,7 @@ class SimulatorSmokeTest {
         verifyReaderControlsSettings();
         verifyStatusBarSettings();
         verifyMixedPageGestures();
+        verifyUiThemePersistence();
 #if CROSSINK_SCALABLE_FONTS
         verifyBlockFontSizes(sdFontSystem.ensureBuiltInReaderFont(renderer));
         if (const char* family = std::getenv("CROSSINK_SIMULATOR_SMOKE_FONT_FAMILY")) {

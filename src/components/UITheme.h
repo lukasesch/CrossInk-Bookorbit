@@ -40,6 +40,13 @@ class UITheme {
   static bool supportsCoverGrid();
   static bool hasCoverGridHome();
   static bool hasBookOrbitHome();
+  static bool isPicco() {
+#if CROSSINK_APP_PICCO_UI
+    return SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PICCO;
+#else
+    return false;
+#endif
+  }
   static int getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader, bool hasTabBar, bool hasButtonHints,
                                      bool hasSubtitle, int extraReservedHeight = 0);
   // Returns the cache path for a generated thumbnail using the default 3:5

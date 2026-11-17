@@ -228,6 +228,14 @@ python fontconvert.py inter_8_regular 8 \
   ../builtinFonts/source/NotoSansArabic/NotoSansArabic-Regular.ttf \
   --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > ../builtinFonts/inter_8_regular.h
 
+# Bold small UI font - Picco section labels (CROSSINK_APP_PICCO_UI builds only)
+
+python fontconvert.py inter_8_bold 8 \
+  ../builtinFonts/source/Inter/Inter-Bold.ttf \
+  ../builtinFonts/source/IBMPlexSansHebrew/IBMPlexSansHebrew-Bold.ttf \
+  ../builtinFonts/source/NotoSansArabic/NotoSansArabic-Bold.ttf \
+  --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > ../builtinFonts/inter_8_bold.h
+
 echo ""
 echo "Running compression verification..."
 python verify_compression.py ../builtinFonts/

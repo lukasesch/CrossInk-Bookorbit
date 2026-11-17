@@ -14,6 +14,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
 
 #include "OpdsServerStore.h"
 #include "activities/ActivityManager.h"
@@ -168,7 +169,7 @@ struct PluginCatalogSmokeTest {
       require(activityManager.isCurrentActivityNamed("NetworkModeSelection"), "File Transfer menu missing");
       auto& menu = *static_cast<NetworkModeSelectionActivity*>(activityManager.simulatorCurrentActivity());
       if (phase == -6) {
-        for (int theme = 0; theme < CrossPointSettings::UI_THEME_COUNT; ++theme) {
+        for (const uint8_t theme : CrossPointSettings::KNOWN_UI_THEMES) {
           {
             RenderLock lock;
             SETTINGS.uiTheme = theme;
@@ -309,8 +310,8 @@ struct PluginCatalogSmokeTest {
         LOG_INF("PLUGINTEST", "Protected AES-128/AES-256, wrapped keys, expiry and tamper checks passed");
       }
       SETTINGS.pluginsEnabled = 1;
-      const int theme = homePass / 2;
-      if (theme >= CrossPointSettings::UI_THEME_COUNT) {
+      const size_t themeIndex = homePass / 2;
+      if (themeIndex >= std::size(CrossPointSettings::KNOWN_UI_THEMES)) {
         RenderLock lock;
         SETTINGS.uiTheme = originalTheme;
         UITheme::getInstance().reload();
@@ -319,7 +320,7 @@ struct PluginCatalogSmokeTest {
       }
       {
         RenderLock lock;
-        SETTINGS.uiTheme = theme;
+        SETTINGS.uiTheme = CrossPointSettings::KNOWN_UI_THEMES[themeIndex];
         UITheme::getInstance().reload();
         if (!OPDS_STORE.hasServers())
           require(OPDS_STORE.addServer({"Fixture OPDS", "https://example.invalid"}), "OPDS fixture");

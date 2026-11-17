@@ -2006,7 +2006,9 @@ void HomeActivity::loop() {
     return;
   }
 
-  if (static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA &&
+  // Picco uses Lyra's Home until its own lands.
+  if ((static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme) == CrossPointSettings::UI_THEME::LYRA ||
+       UITheme::isPicco()) &&
       mappedInput.hasTouch() && canSwapHomeBook() && mappedInput.wasSwipe() == MappedInputManager::SwipeDir::Left) {
     showNextRecentBookOnHome();
     return;
@@ -2208,8 +2210,8 @@ void HomeActivity::loop() {
     // (Settings, last of nine) stay within reach. The swipe is clamped, not wrapped: reaching
     // the end of a list should feel like the end, not a jump back to the top.
     const auto uiTheme = static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme);
-    const bool pagedLyraMenu =
-        uiTheme == CrossPointSettings::UI_THEME::LYRA || uiTheme == CrossPointSettings::UI_THEME::LYRA_3_COVERS;
+    const bool pagedLyraMenu = uiTheme == CrossPointSettings::UI_THEME::LYRA ||
+                               uiTheme == CrossPointSettings::UI_THEME::LYRA_3_COVERS || UITheme::isPicco();
     if (pagedLyraMenu && mappedInput.hasTouch()) {
       MappedInputManager::SwipeDir swipe = MappedInputManager::SwipeDir::None;
       int startX = 0;

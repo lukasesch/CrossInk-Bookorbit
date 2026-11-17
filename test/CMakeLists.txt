@@ -171,6 +171,7 @@ add_subdirectory(asset_catalog_signature)
 add_subdirectory(http_header)
 add_subdirectory(swipe_delete)
 add_subdirectory(touch_action_buttons)
+add_subdirectory(picco_ui)
 add_test(NAME LanguageAssetPublicationRegression
   COMMAND ${Python3_EXECUTABLE} ${REPO_ROOT}/test/scripts/test_language_asset_publication.py)
 add_test(NAME ReleaseDownloadPreparationRegression

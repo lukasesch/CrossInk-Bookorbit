@@ -1331,7 +1331,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
       // readAndValidate's no-op-on-invalid behaviour.
       uint8_t rawTheme = LYRA;
       serialization::readPod(inputFile, rawTheme);
-      uiTheme = (rawTheme < UI_THEME_COUNT) ? rawTheme : static_cast<uint8_t>(LYRA);
+      uiTheme = sanitizeLegacyUiTheme(rawTheme);
     }
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, frontButtonBack, FRONT_BUTTON_HARDWARE_COUNT);

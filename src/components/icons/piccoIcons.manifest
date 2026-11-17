@@ -1,0 +1,17 @@
+# Picco theme icons, kept out of upstream's manifests so their headers never conflict.
+# Sizes per the design tokens: row/sync 22, chevron 26, house 28, tile 32. Regenerate with:
+# python3 scripts/generate_icons.py --library lucide \
+#   --manifest src/components/icons/piccoIcons.manifest \
+#   --sizes 22,26,28,32 --stroke-width 1.75 \
+#   --out src/components/icons/piccoIcons.h
+# then clang-format -i the output.
+picco_chevron_left = chevron-left
+picco_chevron_right = chevron-right
+picco_house = house
+picco_sync = refresh-ccw
+picco_check = check
+picco_minus = minus
+picco_plus = plus
+picco_arrow_right = arrow-right
+picco_wifi_off = wifi-off
+picco_alert = circle-alert

@@ -378,6 +378,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   };
 
   // UI Theme. Raw values are persisted in settings; keep existing values stable.
+  // UI_THEME_COUNT bounds upstream's contiguous range only. Fork themes sit far
+  // outside it (never renumber): validate with isKnownUiTheme(), not the count.
   enum UI_THEME {
     CLASSIC = 0,
     LYRA = 1,
@@ -388,7 +390,32 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     DASHBOARD = 6,
     COVER_GRID = 7,
     BOOKORBIT = 8,
-    UI_THEME_COUNT = 9
+    UI_THEME_COUNT = 9,
+    PICCO = 64,
+  };
+  static constexpr bool isKnownUiTheme(const uint8_t raw) {
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+    if (raw == PICCO) return true;
+#endif
+    return raw < UI_THEME_COUNT;
+  }
+  static constexpr uint8_t sanitizeLegacyUiTheme(const uint8_t raw) {
+    return isKnownUiTheme(raw) ? raw : static_cast<uint8_t>(LYRA);
+  }
+  // Every selectable theme value in this build, in settings order; smoke loops iterate it.
+  static constexpr uint8_t KNOWN_UI_THEMES[] = {CLASSIC,
+                                                LYRA,
+                                                LYRA_3_COVERS,
+                                                ROUNDEDRAFF,
+                                                LYRA_CAROUSEL,
+                                                MINIMAL,
+                                                DASHBOARD,
+                                                COVER_GRID,
+                                                BOOKORBIT
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+                                                ,
+                                                PICCO
+#endif
   };
   enum RECENT_BOOKS_VIEW { RECENT_BOOKS_LIST = 0, RECENT_BOOKS_GRID = 1, RECENT_BOOKS_VIEW_COUNT };
 
