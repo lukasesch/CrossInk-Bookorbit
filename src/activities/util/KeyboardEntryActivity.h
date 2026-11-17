@@ -6,11 +6,29 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <vector>
 
+#include "AppCapabilities.h"
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
 enum class InputType { Text, Password, Url };
+
+#if CROSSINK_APP_PICCO_UI
+// Picco only: the sign-in form drawn around the field being edited (T_Login). The other
+// fields show their values; the keyboard's OK key carries okLabel ("Next", "Sign in").
+struct KeyboardFormField {
+  std::string label;
+  std::string value;
+  bool masked = false;
+};
+struct KeyboardForm {
+  std::string lead;
+  std::vector<KeyboardFormField> fields;
+  int editing = 0;
+  std::string okLabel;
+};
+#endif
 
 // Text entry on the FreeInkUI keyboard component: the SDK layout tables and
 // keyboard() do the key rendering and hit-rect registration, InteractionBuffer
@@ -35,6 +53,9 @@ class KeyboardEntryActivity : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override { return true; }
+#if CROSSINK_APP_PICCO_UI
+  void setForm(KeyboardForm value) { form = std::move(value); }
+#endif
   uint8_t inputPollDelayMs() const override { return mappedInput.hasTouchHardware() ? 2 : 10; }
 
  private:
@@ -47,6 +68,7 @@ class KeyboardEntryActivity : public Activity {
   InputType inputType;
   size_t minLength;
   bool passwordVisible = false;
+  int inputFontId = 0;  // field text font, set in onEnter()
   // Fixed UI font metric, captured before input starts. Querying the renderer
   // during hit testing can wait for an entire e-ink refresh on TTF builds.
   int inputLineHeight = 0;
@@ -113,6 +135,19 @@ class KeyboardEntryActivity : public Activity {
   unsigned long hintShowTime = 0;
 
   enum class InputFieldTouchTarget { None, Cursor, PasswordToggle };
+#if CROSSINK_APP_PICCO_UI
+  KeyboardForm form;
+  struct PiccoField {
+    freeink::ui::Rect frame;
+    freeink::ui::Rect text;  // first line's box; wrapped lines follow at inputLineHeight
+    freeink::ui::Rect toggle;
+    int maxLineWidth = 0;
+  };
+  PiccoField piccoField(const std::string& displayText) const;
+  freeink::ui::Rect piccoKeyboardRect() const;
+  InputFieldTouchTarget piccoInputFieldTouchTarget(int x, int y, size_t& position) const;
+  void renderPicco();
+#endif
 
   void onComplete(std::string text);
   void onCancel();

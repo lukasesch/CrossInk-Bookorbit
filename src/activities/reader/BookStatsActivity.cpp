@@ -2,6 +2,7 @@
 
 #include <I18n.h>
 
+#include "AppCapabilities.h"
 #include "BookStatsView.h"
 #include "EpubReaderMenuModel.h"
 #include "FilenameFontSystem.h"
@@ -10,6 +11,9 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoStatsPage.h"
+#endif
 #include "network/ReadingSyncUpload.h"
 #include "sync/BookSyncFile.h"
 #include "sync/SyncPending.h"
@@ -376,6 +380,15 @@ bool BookStatsActivity::selectEditFieldFromTouchTarget(const int touchTarget) {
   return true;
 }
 
+bool BookStatsActivity::piccoGlobalPage() const {
+#if CROSSINK_APP_PICCO_UI
+  return UITheme::isPicco() && (page == Page::ThisDevice || page == Page::AllDevices) &&
+         (!usesNoRtcSingleScreenLayout() || bookCachePath.empty());
+#else
+  return false;
+#endif
+}
+
 bool BookStatsActivity::canSyncReadingStats() const { return ReadingSyncUpload::canSyncReadingStats(); }
 
 void BookStatsActivity::startSyncReadingStats() {
@@ -428,6 +441,18 @@ void BookStatsActivity::loop() {
     }
     return;
   }
+#if CROSSINK_APP_PICCO_UI
+  int tab = -1;
+  if (piccoGlobalPage() && mappedInput.wasTabTapped(tab)) {
+    const Page next =
+        tab == PiccoStatsPage::kTabAllDevices && showAllDevicesStats ? Page::AllDevices : Page::ThisDevice;
+    if (next != page) {
+      page = next;
+      requestUpdate();
+    }
+    return;
+  }
+#endif
   int syncTarget = -1;
   const bool syncPage = usesNoRtcSingleScreenLayout() || page == Page::ThisDevice;
   if (syncPage && canSyncReadingStats() && mappedInput.wasItemTapped(syncTarget) &&
@@ -568,6 +593,19 @@ void BookStatsActivity::loop() {
 }
 
 void BookStatsActivity::render(RenderLock&&) {
+#if CROSSINK_APP_PICCO_UI
+  if (piccoGlobalPage()) {
+    PiccoStatsPage::Content content;
+    content.allDevices = page == Page::AllDevices;
+    content.stats = content.allDevices ? &allDevicesStats : &globalStats;
+    content.daily = &dailySummary;
+    content.showTabs = showAllDevicesStats;
+    content.showSync = !content.allDevices && canSyncReadingStats();
+    PiccoStatsPage::render(renderer, mappedInput, content);
+    renderer.displayBuffer();
+    return;
+  }
+#endif
   if (usesNoRtcSingleScreenLayout()) {
     renderNoRtcCombinedStatsPage(renderer, &mappedInput, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,
                                  estimatedTimeLeftSeconds, globalStats,

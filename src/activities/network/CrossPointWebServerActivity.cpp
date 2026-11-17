@@ -24,6 +24,10 @@
 #include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#include "components/picco/PiccoTransferUi.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoTokens.h"
+#endif
 #include "fontIds.h"
 #include "util/PluginEvents.h"
 #include "util/QrUtils.h"
@@ -99,6 +103,9 @@ void CrossPointWebServerActivity::onEnter() {
   // Launch network mode selection subactivity
   startActivityForResult(std::make_unique<NetworkModeSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) {
+#ifdef SIMULATOR
+                           if (simulatorHold) return;
+#endif
                            if (result.isCancelled) {
                              exitToOrigin();
                            } else {
@@ -538,6 +545,10 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
       renderServerRunning();
     } else {
       renderHeader();
+      if (PiccoTransferUi::drawStatus(renderer, tr(STR_STARTING_HOTSPOT), nullptr, false)) {
+        renderer.displayBuffer(screenTransitionRefresh.modeFor(static_cast<uint8_t>(state)));
+        return;
+      }
       const auto height = renderer.getLineHeight(UI_10_FONT_ID);
       const auto top = (pageHeight - height) / 2;
       renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_STARTING_HOTSPOT));
@@ -548,7 +559,8 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
 
 void CrossPointWebServerActivity::renderHeader() const {
   const char* title = isApMode ? tr(STR_HOTSPOT_MODE) : tr(STR_FILE_TRANSFER);
-  if (mappedInput.hasTouchHardware()) {
+  if (PiccoTransferUi::drawHeader(renderer, title, true)) {
+  } else if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::drawCompact(renderer, title);
   } else {
     CompactHeader::drawTitle(renderer, title);
@@ -561,6 +573,12 @@ bool CrossPointWebServerActivity::exitRequested() const {
 }
 
 void CrossPointWebServerActivity::renderServerRunning() const {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    renderServerRunningPicco();
+    return;
+  }
+#endif
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const int pageWidth = safe.width;
@@ -671,3 +689,86 @@ void CrossPointWebServerActivity::renderWifiIndicator(int subHeaderTop) const {
     renderer.drawLine(x0, y0 + xSize, x0 + xSize, y0, 2, true);
   }
 }
+
+#if CROSSINK_APP_PICCO_UI
+// Picco: the network as a row under the header, then each step's hint, QR code and
+// address with the T_DesignLanguage spacing. Same content as renderServerRunning().
+void CrossPointWebServerActivity::renderServerRunningPicco() const {
+  using namespace PiccoTokens;
+  renderHeader();
+  const int pageWidth = renderer.getScreenWidth();
+  const int top = PiccoTransferUi::contentTop(renderer);
+  const int left = kGutter;
+  const int width = pageWidth - 2 * kGutter;
+  const int bodyH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int smallH = renderer.getLineHeight(SMALL_FONT_ID);
+
+  // Network row: name, signal at the right (joined networks only), hairline under it.
+  const int indicatorReserve = isApMode ? 0 : 40;
+  const std::string ssid =
+      renderer.truncatedText(UI_10_FONT_ID, connectedSSID.c_str(), width - indicatorReserve, EpdFontFamily::BOLD);
+  renderer.drawText(UI_10_FONT_ID, left, top + (kRowOneLine - bodyH) / 2, ssid.c_str(), true, EpdFontFamily::BOLD);
+  if (!isApMode) {
+    // The indicator hangs from a sub-header's bottom; centre it on the row instead.
+    const auto& metrics = UITheme::getInstance().getMetrics();
+    renderWifiIndicator(top + kRowOneLine / 2 + 7 - (metrics.tabBarHeight - metrics.verticalSpacing));
+  }
+  renderer.fillRect(left, top + kRowOneLine - 1, width, kHairline, true);
+  int y = top + kRowOneLine + kSectionFirstAbove;
+
+  if (isApMode) {
+    auto step = [&](const char* hint, const std::string& qr, const char* line1, const char* line2) {
+      y += UITheme::drawCenteredWrappedText(renderer, Rect{left, y, width, 2 * bodyH}, UI_10_FONT_ID, y, hint, 2, true,
+                                            EpdFontFamily::BOLD);
+      y += kSectionBelow;
+      QrUtils::drawQrCode(renderer, Rect(left, y, QR_CODE_WIDTH, QR_CODE_HEIGHT), qr);
+      const int textX = left + QR_CODE_WIDTH + kGroupGap;
+      const int textW = pageWidth - kGutter - textX;
+      const int blockH = bodyH + (line2 ? smallH : 0);
+      const int textY = y + (QR_CODE_HEIGHT - blockH) / 2;
+      renderer.drawText(UI_10_FONT_ID, textX, textY, renderer.truncatedText(UI_10_FONT_ID, line1, textW).c_str());
+      if (line2) {
+        renderer.drawText(SMALL_FONT_ID, textX, textY + bodyH,
+                          renderer.truncatedText(SMALL_FONT_ID, line2, textW).c_str());
+      }
+      y += QR_CODE_HEIGHT + kSectionAbove;
+    };
+    const std::string wifiConfig = std::string("WIFI:T:nopass;S:") + connectedSSID + ";;";
+    step(tr(STR_CONNECT_WIFI_HINT), wifiConfig, connectedSSID.c_str(), nullptr);
+    const std::string hostnameUrl = std::string("http://") + AP_HOSTNAME + ".local/";
+    const std::string ipUrl = tr(STR_OR_HTTP_PREFIX) + connectedIP + "/";
+    step(tr(STR_OPEN_URL_HINT), hostnameUrl, hostnameUrl.c_str(), ipUrl.c_str());
+  } else {
+    const Rect area{left, y, width, 2 * bodyH};
+    y += UITheme::drawCenteredWrappedText(renderer, area, UI_10_FONT_ID, y, tr(STR_OPEN_URL_HINT), 2, true,
+                                          EpdFontFamily::BOLD);
+    y += UITheme::drawCenteredWrappedText(renderer, area, SMALL_FONT_ID, y, tr(STR_SCAN_QR_HINT), 2);
+    y += kSectionBelow;
+    const std::string webInfo = "http://" + connectedIP + "/";
+    QrUtils::drawQrCode(renderer, Rect((pageWidth - QR_CODE_WIDTH) / 2, y, QR_CODE_WIDTH, QR_CODE_HEIGHT), webInfo);
+    y += QR_CODE_HEIGHT + kSectionBelow;
+    renderer.drawCenteredText(UI_10_FONT_ID, y, webInfo.c_str(), true, EpdFontFamily::BOLD);
+    y += bodyH;
+    const std::string hostnameUrl = std::string(tr(STR_OR_HTTP_PREFIX)) + AP_HOSTNAME + ".local/";
+    renderer.drawCenteredText(SMALL_FONT_ID, y, hostnameUrl.c_str(), true);
+  }
+
+  const auto labels = mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_EXIT)), "", "", "");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+#endif
+
+#ifdef SIMULATOR
+void CrossPointWebServerActivity::simulatorShowServer(const bool ap, std::string ssid, std::string ip) {
+  {
+    RenderLock lock(*this);
+    simulatorHold = true;
+    isApMode = ap;
+    connectedSSID = std::move(ssid);
+    connectedIP = std::move(ip);
+    lastWifiBars = 3;
+    state = WebServerActivityState::SERVER_RUNNING;
+  }
+  requestUpdate();
+}
+#endif

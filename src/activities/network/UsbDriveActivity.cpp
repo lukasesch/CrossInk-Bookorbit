@@ -13,6 +13,7 @@
 #include "components/CompactHeader.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
+#include "components/picco/PiccoTransferUi.h"
 #include "fontIds.h"
 
 void UsbDriveActivity::onEnter() {
@@ -150,7 +151,8 @@ void UsbDriveActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const char* title = tr(STR_USB_DRIVE);
   const bool canExitWithInput = state == State::WaitingForHost || state == State::IoError;
-  if (mappedInput.hasTouchHardware() && canExitWithInput) {
+  if (PiccoTransferUi::drawHeader(renderer, title, canExitWithInput)) {
+  } else if (mappedInput.hasTouchHardware() && canExitWithInput) {
     TouchHeaderBackButton::drawCompact(renderer, title);
   } else {
     CompactHeader::drawTitle(renderer, title);
@@ -186,6 +188,12 @@ void UsbDriveActivity::render(RenderLock&&) {
 }
 
 void UsbDriveActivity::renderMessage(const char* message, const char* detail) const {
+  // Errors carry no detail line; on Picco the message goes under the screen's name.
+  const bool error = forcedDisconnectRequested || state == State::IoError;
+  if (error ? PiccoTransferUi::drawStatus(renderer, tr(STR_USB_DRIVE), message, true)
+            : PiccoTransferUi::drawStatus(renderer, message, detail, false)) {
+    return;
+  }
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect textArea{safe.x + metrics.contentSidePadding, safe.y, safe.width - metrics.contentSidePadding * 2,

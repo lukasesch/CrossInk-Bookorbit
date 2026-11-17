@@ -55,6 +55,16 @@ void BookOrbitAuthActivity::performAuthentication() {
 void BookOrbitAuthActivity::onEnter() {
   Activity::onEnter();
   sdFontSystem.releaseLoadedFont(renderer);
+#if CROSSINK_APP_PICCO_UI
+  picco = UITheme::isPicco();
+  if (picco) {
+    // The form first; Wi-Fi starts when the user signs in.
+    state = FORM;
+    piccoFocus = mappedInput.hasTouchHardware() ? -1 : kPiccoFields;
+    requestUpdate();
+    return;
+  }
+#endif
 
   // Check if already connected
   if (WiFi.status() == WL_CONNECTED) {
@@ -78,6 +88,12 @@ void BookOrbitAuthActivity::onExit() {
 }
 
 void BookOrbitAuthActivity::render(RenderLock&&) {
+#if CROSSINK_APP_PICCO_UI
+  if (picco) {
+    renderPicco();
+    return;
+  }
+#endif
   renderer.clearScreen();
 
   const auto pageHeight = renderer.getScreenHeight();
@@ -109,6 +125,12 @@ void BookOrbitAuthActivity::render(RenderLock&&) {
 }
 
 void BookOrbitAuthActivity::loop() {
+#if CROSSINK_APP_PICCO_UI
+  if (picco) {
+    loopPicco();
+    return;
+  }
+#endif
   if (state == SUCCESS || state == FAILED) {
     // This activity replaced the settings stack rather than stacking on it, so there is
     // nothing to return to: both buttons go home. When WiFi came up, onExit() restarts

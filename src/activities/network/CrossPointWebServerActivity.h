@@ -5,6 +5,7 @@
 #include <string>
 #include <utility>
 
+#include "AppCapabilities.h"
 #include "NetworkModeSelectionActivity.h"
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
@@ -61,6 +62,17 @@ class CrossPointWebServerActivity final : public Activity {
   ScreenTransitionRefresh screenTransitionRefresh;
 
   void renderServerRunning() const;
+#if CROSSINK_APP_PICCO_UI
+  void renderServerRunningPicco() const;
+#endif
+#ifdef SIMULATOR
+  bool simulatorHold = false;  // keeps a fake running server through the mode list's Back
+
+ public:
+  void simulatorShowServer(bool ap, std::string ssid, std::string ip);
+
+ private:
+#endif
   void renderHeader() const;
   void renderWifiIndicator(int subHeaderTop) const;
   bool exitRequested() const;

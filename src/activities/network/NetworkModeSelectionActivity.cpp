@@ -14,6 +14,11 @@
 #include "components/icons/readingStatsIcons.h"
 #include "components/icons/syncIcons.h"
 #include "fontIds.h"
+#if CROSSINK_APP_PICCO_UI
+#include <cctype>
+
+#include "components/picco/PiccoPageIndicator.h"
+#endif
 #include "network/ReadingSyncUpload.h"
 
 namespace fui = freeink::ui;
@@ -221,9 +226,16 @@ void NetworkModeSelectionActivity::listScreen(UiApp::ScreenType& screen, void* u
 void NetworkModeSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Content below the GUI.drawHeader band, above the button hints.
+  int bottomReserve = UITheme::getButtonHintsReserve(renderer);
+#if CROSSINK_APP_PICCO_UI
+  // Picco: the list ends above the "n / m" page indicator.
+  if (UITheme::isPicco()) bottomReserve = renderer.getScreenHeight() - PiccoPageIndicator::listBottom(renderer);
+  char headingCaps[2][48];
+  int headingCount = 0;
+#endif
   setUiContentMargin(screen, renderer,
                      fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput)), 0,
-                                 static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
+                                 static_cast<int16_t>(bottomReserve), 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   std::vector<fui::ListItem> items;
@@ -235,6 +247,18 @@ void NetworkModeSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
       fui::ListItem header;
       header.label = I18N.get(sectionHeading(entry.section));
       header.isHeader = true;
+#if CROSSINK_APP_PICCO_UI
+      // Section labels are caps on Picco (T_DesignLanguage).
+      if (UITheme::isPicco() && headingCount < 2) {
+        char* caps = headingCaps[headingCount++];
+        size_t n = 0;
+        for (; header.label[n] != '\0' && n + 1 < sizeof(headingCaps[0]); ++n) {
+          caps[n] = static_cast<char>(std::toupper(static_cast<unsigned char>(header.label[n])));
+        }
+        caps[n] = '\0';
+        header.label = caps;
+      }
+#endif
       items.push_back(header);
     }
     previous = entry.section;
@@ -269,7 +293,7 @@ void NetworkModeSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.subtitleText = screen.theme().smallText;
   props.subtitleText.bold = false;
   props.subtitleText.maxLines = 2;
-  props.headerText = screen.theme().bodyText;
+  props.headerText = UITheme::isPicco() ? screen.theme().smallText : screen.theme().bodyText;
   props.headerText.bold = true;
   props.rowGap = 10;
   // The normal 10px row gap plus this extra 10px separates each section
@@ -303,6 +327,10 @@ void NetworkModeSelectionActivity::render(RenderLock&&) {
     ui.render();
     if (!listNav.consumeRebuildNeeded()) break;
   }
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco())
+    PiccoPageIndicator::drawForList(renderer, topIndex, listNav.pageRowsFor(listCount), listCount);
+#endif
 
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));

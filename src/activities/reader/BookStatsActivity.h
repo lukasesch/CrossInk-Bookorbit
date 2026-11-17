@@ -39,6 +39,8 @@ class BookStatsActivity final : public Activity {
 
   bool hasEditableBook() const { return !bookCachePath.empty() && halClock.isAvailable(); }
   bool usesNoRtcSingleScreenLayout() const { return !halClock.isAvailable(); }
+  // Picco draws the device pages as T_Stats (tabs instead of paging between them).
+  bool piccoGlobalPage() const;
   void refreshAllDevicesStats();
   void loadDailySummary();
   void saveStats();

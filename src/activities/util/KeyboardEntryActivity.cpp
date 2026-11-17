@@ -137,7 +137,11 @@ const fui::KeyboardLayout URL_SNIPPET_LAYOUT{URL_SNIP_ROWS, 4};
 
 void KeyboardEntryActivity::onEnter() {
   Activity::onEnter();
-  inputLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  inputFontId = UI_12_FONT_ID;
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) inputFontId = UI_10_FONT_ID;  // 21 px field text (T_Login)
+#endif
+  inputLineHeight = renderer.getLineHeight(inputFontId);
 #if CROSSINK_APP_CAP_TOUCH
   pendingFeedback = 0;
   feedbackSequence = 0;
@@ -403,7 +407,7 @@ int KeyboardEntryActivity::measureRange(std::string& s, const int start, const i
   // be written there, which is exactly what the measurement needs.
   const char saved = s[end];
   s[end] = '\0';
-  const int width = renderer.getTextAdvanceX(UI_12_FONT_ID, s.c_str() + start, EpdFontFamily::REGULAR);
+  const int width = renderer.getTextAdvanceX(inputFontId, s.c_str() + start, EpdFontFamily::REGULAR);
   s[end] = saved;
   return width;
 }
@@ -446,6 +450,9 @@ int KeyboardEntryActivity::lineBreakEnd(std::string& s, const int start, const i
 
 KeyboardEntryActivity::InputFieldTouchTarget KeyboardEntryActivity::inputFieldTouchTargetFromPoint(
     const int x, const int y, size_t& position) const {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) return piccoInputFieldTouchTarget(x, y, position);
+#endif
   // Key taps are the overwhelmingly common case; they land on the keyboard,
   // never the text field, so skip the wrap/measure work entirely.
   if (y >= keyboardRect().y) return InputFieldTouchTarget::None;
@@ -552,6 +559,9 @@ int KeyboardEntryActivity::textFieldMargin() const {
 }
 
 fui::Rect KeyboardEntryActivity::keyboardRect() const {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) return piccoKeyboardRect();
+#endif
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int rows = currentLayout().rowCount;
   const bool hasTouch = mappedInput.hasTouchHardware();
@@ -801,6 +811,12 @@ void KeyboardEntryActivity::loop() {
 }
 
 void KeyboardEntryActivity::render(RenderLock&&) {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    renderPicco();
+    return;
+  }
+#endif
 #if CROSSINK_APP_CAP_TOUCH
   const uint32_t feedback = pendingFeedback.load();
 #endif
