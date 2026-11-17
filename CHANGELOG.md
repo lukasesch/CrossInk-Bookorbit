@@ -32,6 +32,9 @@ Based on CrossInk v2.0.0.
 - Shortcuts set to BookOrbit Sync keep working after this update. CrossInk v2.0.0 gives the numbers they were saved under to Back Home and Home/Reader, so they are carried over the first time the device starts, on every button that offers BookOrbit Sync, the Home key and Quick Actions included.
 - BookOrbit Sync no longer sends a guessed position when the device cannot place the page within the book's structure: the sync stops with an error instead. A guessed position could send another reader to the wrong place, or to the start of the book.
 - Download Languages and Hyphenation Packs work on the X3 and X4. The download failed every time after a minute of waiting: with Wi-Fi on, the reader had too little memory left for the secure connection it opened. It now uses the lighter one that BookOrbit Sync and font downloads already use, as CrossInk v2.0.0-RC also fails there ([CrossInk#927](https://github.com/uxjulia/CrossInk/issues/927)).
+- Holding Power while the reader restarts on its own, for instance after a BookOrbit download or when leaving File Transfer, no longer runs an action once the reader is back: releasing it no longer confirms, turns a page or fires a Power shortcut. Power works normally from the next press, without the two-second wait after such restarts.
+- BOOX Picco: About now names its touch controller (TMA525C).
+- Dictionary definitions also turn pages with a left or right swipe, not only with an up or down swipe.
 
 ### Security
 

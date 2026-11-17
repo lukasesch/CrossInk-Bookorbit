@@ -33,6 +33,8 @@ const char* touchName(BoardConfig::TouchController controller) {
       return "GSLX680";
     case BoardConfig::TouchController::Cst816s:
       return "CST816S";
+    case BoardConfig::TouchController::Tma525c:
+      return "TMA525C";
   }
   return nullptr;
 }

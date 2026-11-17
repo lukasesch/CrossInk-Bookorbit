@@ -2274,12 +2274,22 @@ void setup() {
     gpio.update();
     delay(10);
     gpio.update();
+    // A Power hold that spans the restart belongs to the gesture that caused it
+    // (or to nothing). Treat it like a wake hold: no held shortcut, Confirm
+    // fallback or short-Power action until it is released, and swallow that release.
+    if (gpio.isPressed(HalGPIO::BTN_POWER)) {
+      LOG_DBG("MAIN", "Power held across restart; consuming its release");
+      wakePowerReleasePending = true;
+      mappedInputManager.suppressNextPowerRelease();
+      mappedInputManager.suppressNextPowerConfirmRelease();
+    }
   }
 
 #ifndef SIMULATOR
   gpio.startButtonCapture();
 #endif
-  allowSleepAt = millis() + 2000;
+  // The restart hold is guarded above, so a silent restart needs no startup delay.
+  allowSleepAt = millis() + (isSilentReboot ? 0 : 2000);
 }
 
 void loop() {

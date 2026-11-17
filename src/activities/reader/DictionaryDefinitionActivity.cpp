@@ -1433,10 +1433,11 @@ void DictionaryDefinitionActivity::loop() {
   const bool powerPrevious = powerReleased && powerAction == CrossPointSettings::PREVIOUS_PAGE;
   const bool powerNext = powerReleased && powerAction == CrossPointSettings::PAGE_TURN;
   const auto swipe = mappedInput.wasSwipe();
+  // Horizontal swipes page like the reader's swipe page turns.
   const bool prevPage = powerPrevious || DictUtils::dictionaryPageButtonTriggered(mappedInput, true) ||
-                        swipe == MappedInputManager::SwipeDir::Down;
+                        swipe == MappedInputManager::SwipeDir::Down || swipe == MappedInputManager::SwipeDir::Right;
   const bool nextPage = powerNext || DictUtils::dictionaryPageButtonTriggered(mappedInput, false) ||
-                        swipe == MappedInputManager::SwipeDir::Up;
+                        swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Left;
 
   if (prevPage && currentPage > 0) {
     currentPage--;
