@@ -843,14 +843,14 @@ struct ReaderDrawerLayoutSmokeTest {
       drawer.state.tab = ReaderDrawerTab::Layout;
       for (int mode = 0; mode < ImageDisplayMode::Count; ++mode) {
         drawer.showEnumOptions(ReaderDrawerCatalogItem::Images);
-        valid &= drawer.enumOptionValues.size() == ImageDisplayMode::Count;
+        valid &= drawer.settings.enumOptionValues.size() == ImageDisplayMode::Count;
         drawer.selectEnumOption(mode);
         valid &= ImageDisplayMode::selected(drawer.draft.imageRendering, drawer.draft.imageGrayscale) == mode;
       }
       drawer.showEnumOptions(ReaderDrawerCatalogItem::Images);
       drawer.selectEnumOption(ImageDisplayMode::BlackAndWhite);
       drawer.showEnumOptions(ReaderDrawerCatalogItem::Images);
-      valid &= drawer.enumOptionSelectedIndex == 1;
+      valid &= drawer.settings.enumOptionSelectedIndex == 1;
       char label[32];
       valid &= std::strcmp(drawer.rowValue(ReaderDrawerCatalogItem::Images, label, sizeof(label)),
                            tr(STR_IMAGES_DISPLAY_BW)) == 0;

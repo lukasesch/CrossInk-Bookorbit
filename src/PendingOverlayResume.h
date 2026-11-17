@@ -5,7 +5,22 @@
 #include <utility>
 
 enum class PendingOverlayOrigin : uint8_t { None = 0, Reader, Home, FileBrowser, Library };
-enum class PendingOverlayType : uint8_t { None = 0, ReaderDrawer, FrontlightDrawer };
+// Raw values are persisted: append only.
+enum class PendingOverlayType : uint8_t { None = 0, ReaderDrawer, FrontlightDrawer, ReaderSheet };
+
+// Overlays a reader restores through its reader menu. Until the sheet exists,
+// a ReaderSheet resume opens the drawer the same way ReaderDrawer does.
+constexpr bool pendingOverlayOpensReaderMenu(const PendingOverlayType overlay) {
+  switch (overlay) {
+    case PendingOverlayType::ReaderDrawer:
+    case PendingOverlayType::ReaderSheet:
+      return true;
+    case PendingOverlayType::None:
+    case PendingOverlayType::FrontlightDrawer:
+      return false;
+  }
+  return false;
+}
 
 struct PendingOverlayResume {
   PendingOverlayOrigin origin = PendingOverlayOrigin::None;

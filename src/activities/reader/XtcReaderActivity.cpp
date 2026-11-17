@@ -188,6 +188,16 @@ void XtcReaderActivity::onExit() {
 }
 
 void XtcReaderActivity::openReaderMenu() {
+  switch (readerMenuKind()) {
+    case ReaderMenuKind::Drawer:
+    // The sheet arrives in Phase 3b; nothing selects it yet.
+    case ReaderMenuKind::Sheet:
+      openXtcReaderMenu();
+      return;
+  }
+}
+
+void XtcReaderActivity::openXtcReaderMenu() {
   bool hasChapters = false;
   std::string title;
   {

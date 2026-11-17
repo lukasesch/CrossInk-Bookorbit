@@ -21,6 +21,7 @@
 #include "GlobalReadingStats.h"
 #include "PluginReaderEvents.h"
 #include "ReaderButtonShortcuts.h"
+#include "ReaderMenuKind.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "ReadingSessionJournal.h"
 #include "ReadingSessionStats.h"
@@ -117,6 +118,7 @@ class XtcReaderActivity final : public Activity {
   void deleteBookStats();
   void deleteBookCache();
   void openReaderMenu();
+  void openXtcReaderMenu();
   void onReaderMenuConfirm(int action);
   void toggleHomeButtonInReader();
   static bool supportsQuickAction(CrossPointSettings::SHORT_PWRBTN action);

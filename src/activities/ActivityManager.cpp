@@ -771,7 +771,7 @@ void ActivityManager::processPendingActivities() {
                                  (resume.bookPath.empty() || resume.bookPath == currentActivity->getCurrentBookPath());
         const bool homeReady = resume.origin == PendingOverlayOrigin::Home && currentActivity->isHomeActivity();
         if (readerReady || homeReady) {
-          if (resume.overlay == PendingOverlayType::ReaderDrawer && currentActivity->restorePendingOverlay(resume)) {
+          if (pendingOverlayOpensReaderMenu(resume.overlay) && currentActivity->restorePendingOverlay(resume)) {
             PendingOverlayResume consumed;
             APP_STATE.consumePendingOverlayResume(consumed);
           } else if (resume.overlay == PendingOverlayType::FrontlightDrawer &&

@@ -2918,6 +2918,16 @@ void EpubReaderActivity::onExit() {
 }
 
 void EpubReaderActivity::openReaderMenu() {
+  switch (readerMenuKind()) {
+    case ReaderMenuKind::Drawer:
+    // The sheet arrives in Phase 3b; nothing selects it yet.
+    case ReaderMenuKind::Sheet:
+      openReaderDrawer();
+      return;
+  }
+}
+
+void EpubReaderActivity::openReaderDrawer() {
   clearPendingManualPageTurns();
   int chapterPage = 0;
   int chapterPageCount = 0;
@@ -5197,7 +5207,7 @@ bool EpubReaderActivity::handleExternalReaderMenuAction(const uint8_t action) {
 }
 
 bool EpubReaderActivity::restorePendingOverlay(const PendingOverlayResume& resume) {
-  if (!epub || resume.overlay != PendingOverlayType::ReaderDrawer || resume.bookPath != epub->getPath()) return false;
+  if (!epub || !pendingOverlayOpensReaderMenu(resume.overlay) || resume.bookPath != epub->getPath()) return false;
   touchReaderDrawerState.tab =
       static_cast<ReaderDrawerTab>(std::min<uint8_t>(resume.tab, static_cast<uint8_t>(ReaderDrawerTab::Count) - 1));
   touchReaderDrawerState.pane = static_cast<ReaderDrawerPane>(resume.pane);

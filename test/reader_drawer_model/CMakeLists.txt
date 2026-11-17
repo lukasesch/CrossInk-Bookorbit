@@ -1,5 +1,6 @@
 add_executable(ReaderDrawerModelTest
   ReaderDrawerModelTest.cpp
+  ReaderSettingsEditsTest.cpp
 )
 
 target_include_directories(ReaderDrawerModelTest PRIVATE

@@ -28,6 +28,7 @@
 #include "ManualPageTurnQueue.h"
 #include "PluginReaderEvents.h"
 #include "ReaderButtonShortcuts.h"
+#include "ReaderMenuKind.h"
 #include "ReaderProgressSaveDebouncer.h"
 #include "ReadingSessionJournal.h"
 #include "ReadingSessionStats.h"
@@ -569,6 +570,7 @@ class EpubReaderActivity final : public Activity {
                            const PendingOverlayResume* replacementResume = nullptr);
   // Opens the reader menu for the current position (short-press Confirm)
   void openReaderMenu();
+  void openReaderDrawer();
   void applyOrientation(uint8_t orientation);
   bool handleEndOfBookPageTurn(bool isForwardTurn);
   void requestManualPageTurn(bool isForwardTurn, const char* source);

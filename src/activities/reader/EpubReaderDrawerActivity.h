@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "EpubReaderMenuModel.h"
+#include "ReaderSettingsController.h"
 #include "TouchReaderPreviewModel.h"
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
@@ -29,10 +30,10 @@ class EpubReaderDrawerActivity final : public Activity {
 #ifdef SIMULATOR
   friend struct SliderOrientationSmokeTest;
 #endif
-  using SaveSettingsCallback = void (*)(void* ctx);
-  using SaveGlobalSettingsCallback = void (*)(void* ctx);
-  using GlobalSettingsEditCallback = void (*)(void* ctx);
-  using DictionaryFontChangedCallback = void (*)(void* ctx, const char* familyName, uint8_t pointSize);
+  using SaveSettingsCallback = ReaderSettingsController::SaveSettingsCallback;
+  using SaveGlobalSettingsCallback = ReaderSettingsController::SaveGlobalSettingsCallback;
+  using GlobalSettingsEditCallback = ReaderSettingsController::GlobalSettingsEditCallback;
+  using DictionaryFontChangedCallback = ReaderSettingsController::DictionaryFontChangedCallback;
 
   explicit EpubReaderDrawerActivity(
       GfxRenderer& renderer, MappedInputManager& mappedInput, std::shared_ptr<Epub> epub,
@@ -160,11 +161,6 @@ class EpubReaderDrawerActivity final : public Activity {
   bool isCurrentPageBookmarked = false;
   bool isBookCompleted = false;
   bool showReadingPaceReset = false;
-  bool settingsChanged = false;
-  bool didChangeSettings = false;
-  bool previewDirty = false;
-  bool previewFontMetricsChanged = false;
-  bool fontPreviewLoading = false;
   int16_t previousDrawerEdge = -1;
   bool draggingSlider = false;
   bool sliderTapPending = false;
@@ -174,43 +170,22 @@ class EpubReaderDrawerActivity final : public Activity {
   uint16_t autoPageTurnIntervalSeconds = READER_AUTO_PAGE_TURN_MIN_SECONDS;
 
   ReaderDrawerState state{};
-  ReaderSettingsDraft draft{};
-  const ReaderSettingsDraft sourceSettings;
-  ReaderSettingsDraft lastGoodPreviewSettings{};
-  ReaderSettingsChangeMask changeMask = ReaderSettingsChangeMask::None;
+  ReaderSettingsController settings;
+  // Aliases into the controller keep the drawer's UI code (and its smoke-test friends) unchanged.
+  ReaderSettingsDraft& draft = settings.draft;
+  const ReaderSettingsDraft& sourceSettings = settings.sourceSettings;
+  bool& previewDirty = settings.previewDirty;
+  bool& previewFontMetricsChanged = settings.previewFontMetricsChanged;
+  bool& fontPreviewLoading = settings.fontPreviewLoading;
   std::array<std::vector<RowId>, READER_DRAWER_TAB_COUNT> rootRows;
   std::vector<RowId> paneRows;
-  std::vector<std::string> fontLabels;
-  std::vector<uint8_t> fontSettingIndexes;
-  std::vector<std::string> enumOptionLabels;
-  std::vector<uint8_t> enumOptionValues;
-  RowId enumOptionRow = RowId::FontSize;
-  StrId enumOptionTitle = StrId::STR_NONE_OPT;
   ReaderDrawerPane enumOptionReturnPane = ReaderDrawerPane::Root;
-  int16_t enumOptionSelectedIndex = 0;
-  int16_t previewedEnumOptionIndex = -1;
-  std::vector<std::string> dictionaryLabels;
-  std::vector<std::string> dictionaryPaths;
-  std::string bookDictionaryPath;
   std::array<std::string, WINDOW_SIZE> labelWindow{};
   std::array<freeink::ui::ListItem, WINDOW_SIZE> itemWindow{};
   // Owned here rather than as a render-local array, matching itemWindow/labelWindow
   // above: keeps the render task's stack frame small.
   std::array<freeink::ui::KeyGridKey, 12> keypadKeys{};
 
-  SaveSettingsCallback saveReaderSettingsCallback = nullptr;
-  void* saveReaderSettingsContext = nullptr;
-  SaveGlobalSettingsCallback saveGlobalSettingsCallback = nullptr;
-  void* saveGlobalSettingsContext = nullptr;
-  GlobalSettingsEditCallback beginGlobalSettingsEditCallback = nullptr;
-  void* beginGlobalSettingsEditContext = nullptr;
-  GlobalSettingsEditCallback endGlobalSettingsEditCallback = nullptr;
-  void* endGlobalSettingsEditContext = nullptr;
-  char dictionaryFontFamilyName[64] = {};
-  uint8_t dictionaryFontPointSize = 0;
-  bool hasDictionaryFontOverride = false;
-  DictionaryFontChangedCallback dictionaryFontChangedCallback = nullptr;
-  void* dictionaryFontChangedContext = nullptr;
   ButtonNavigator buttonNavigator;
   freeink::ui::GfxRendererTarget uiTarget;
   UiApp app;
@@ -268,19 +243,14 @@ class EpubReaderDrawerActivity final : public Activity {
   void closeAndReturn(bool cancelled, EpubReaderMenuAction action = EpubReaderMenuAction::GO_HOME,
                       bool reopenDrawer = true);
   void commitSettings();
-  static ReaderSettingsDraft captureSettings();
-  static void applySettings(const ReaderSettingsDraft& settings);
-  void markSettingChanged(ReaderSettingsChangeMask mask);
   void moveSelection(bool forward, bool page);
   void scrollBy(int delta);
   void showEnumOptions(RowId row);
-  void openEnumOptions(RowId row, StrId title, std::vector<std::string> labels, std::vector<uint8_t> values,
-                       int selectedIndex);
+  void openEnumOptionsPane();
   void selectEnumOption(int index);
   void completePercentSelection();
   void completeStablePageSelection();
   void completeAutoPageTurnSelection();
-  void notifyDictionaryFontChanged();
   void toggleSetting(RowId row);
   void adjustActiveSlider(int delta);
   void adjustButtonSlider(int direction);
@@ -303,21 +273,13 @@ class EpubReaderDrawerActivity final : public Activity {
   void renderPreviewWithAntiAliasing(int previewFontId);
   void renderPreviewContents(const ReaderSettingsDraft& previewSettings, int previewFontId);
   void renderPreviewText(const ReaderSettingsDraft& previewSettings, int previewFontId);
-  void discoverFonts();
   void refreshTtfRenderingRow();
 #if CROSSINK_SCALABLE_FONTS
   OptionPopup ttfResetPopup;
-  TtfRenderProfile ttfRenderProfile{};
-  TtfRenderProfile initialTtfRenderProfile{};
-  bool ttfRenderingChanged = false;
 
   void rebuildTtfRenderingRows();
-  void showTtfRenderingOptions(RowId row);
-  bool saveTtfRenderingProfile();
   void finishTtfRenderingEdit();
 #endif
-  void discoverDictionaries();
-  bool saveBookDictionary(const std::string& path);
   const char* rowLabel(RowId row) const;
   const char* rowValue(RowId row, char* buffer, size_t bufferSize) const;
   bool rowIsToggle(RowId row) const;
