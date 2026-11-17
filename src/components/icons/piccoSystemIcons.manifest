@@ -1,0 +1,12 @@
+# Picco system-screen icons (T_Wifi, T_Fonts, T_HyphenationPacks), traced from the boards'
+# inline SVGs (Lucide geometry, stroke 1.75) in piccoSystemSvg/. Regenerate with:
+# python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
+#   --manifest src/components/icons/piccoSystemIcons.manifest \
+#   --svgdir src/components/icons/piccoSystemSvg --sizes 22,26 \
+#   --out src/components/icons/piccoSystemIcons.h
+# then clang-format -i the output.
+picco_wifi_3 = picco-wifi-3
+picco_wifi_2 = picco-wifi-2
+picco_wifi_1 = picco-wifi-1
+picco_lock = picco-lock
+picco_download = picco-download

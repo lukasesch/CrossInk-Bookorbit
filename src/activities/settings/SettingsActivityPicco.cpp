@@ -6,24 +6,22 @@
 #if CROSSINK_APP_PICCO_UI
 
 #include <CrossInkHalFrontlight.h>
+#include <Epub/hyphenation/LanguageRegistry.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <string>
 
-#include "AppVersion.h"
 #include "CrossPointSettings.h"
+#include "HyphenationPackStore.h"
 #include "MappedInputManager.h"
 #include "SettingsList.h"
-#include "components/CompactHeader.h"
-#include "components/TouchHeaderBackButton.h"
-#include "components/TouchRegistry.h"
 #include "components/UITheme.h"
-#include "components/picco/PiccoPageIndicator.h"
 #include "components/picco/PiccoSettingsRows.h"
 #include "components/picco/PiccoValueSteps.h"
 #include "fontIds.h"
@@ -132,10 +130,6 @@ bool isPiccoStepper(const SettingInfo& setting) {
   return setting.nameId == StrId::STR_TIME_TO_SLEEP || setting.nameId == StrId::STR_REFRESH_FREQ;
 }
 
-// Touch ids of a stepper row's buttons, above every row index.
-constexpr int kStepperIdBase = 1000;
-constexpr int stepperId(const int row, const bool plus) { return kStepperIdBase + 2 * row + (plus ? 1 : 0); }
-
 void formatSleepMinutes(const unsigned minutes, char* out, const size_t len) {
   if (minutes >= CrossPointSettings::SLEEP_TIMEOUT_NEVER_MINUTES) {
     std::snprintf(out, len, "%s", tr(STR_NEVER));
@@ -153,6 +147,20 @@ int enumIndexOf(const SettingInfo& setting, const uint8_t raw) {
 uint8_t enumRawAt(const SettingInfo& setting, const int index) {
   if (setting.enumRawValues.empty()) return static_cast<uint8_t>(index);
   return setting.enumRawValues[std::clamp<int>(index, 0, static_cast<int>(setting.enumRawValues.size()) - 1)];
+}
+
+// T_Settings "EN, DE": the languages that hyphenate (built in or an installed pack).
+std::string hyphenationSummary() {
+  std::string out;
+  const auto languages = getLanguageEntries();
+  for (size_t i = 0; i < languages.size; ++i) {
+    const auto& entry = languages.data[i];
+    if (entry.hyphenator == nullptr && !HyphenationPackStore::isInstalled(entry.primaryTag)) continue;
+    if (!out.empty()) out += ", ";
+    out += static_cast<char>(std::toupper(static_cast<unsigned char>(entry.primaryTag[0])));
+    out += static_cast<char>(std::toupper(static_cast<unsigned char>(entry.primaryTag[1])));
+  }
+  return out;
 }
 
 bool opensSomething(const SettingInfo& setting) {
@@ -348,7 +356,7 @@ void SettingsActivity::selectFirstPiccoRow() {
       break;
     }
   }
-  piccoFollowSelection = true;
+  piccoList.followSelection = true;
 }
 
 bool SettingsActivity::openPiccoRootRow(const SettingInfo& setting) {
@@ -388,7 +396,7 @@ void SettingsActivity::piccoBack() {
   }
   if (activeSubmenu != SettingAction::None && activeSubmenu != piccoDirectSubmenu) {
     closeSubmenu();
-    piccoFollowSelection = true;
+    piccoList.followSelection = true;
     requestUpdate();
     return;
   }
@@ -424,7 +432,7 @@ void SettingsActivity::stepPiccoSetting(const int index, const int direction) {
   }
   SETTINGS.saveToFile();
   selectedSettingIndex = index + 1;
-  piccoFollowSelection = true;
+  piccoList.followSelection = true;
   requestUpdate();
 }
 
@@ -522,211 +530,73 @@ void SettingsActivity::openPiccoPicker(const StrId title, std::vector<std::strin
   piccoPicker.onSelect = std::move(onSelect);
   piccoPicker.note = note;
   piccoPickerSelected = current;
-  piccoFollowSelection = true;
+  piccoList.followSelection = true;
   requestUpdate();
 }
 
 void SettingsActivity::closePiccoPicker() {
   piccoPicker = PiccoPicker{};
-  piccoFollowSelection = true;
+  piccoList.followSelection = true;
   requestUpdate();
 }
 
-void SettingsActivity::piccoListInput(const int count, int& selected, const std::function<bool(int)>& isRow,
-                                      const std::function<void()>& activate, const std::function<void()>& back) {
-  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer, piccoTitle()) ||
-      mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    back();
-    return;
-  }
-
-  int tapped = -1;
-  if (mappedInput.wasItemTapped(tapped)) {
-    if (!isRow(tapped)) return;
-    selected = tapped;
-    piccoFocus = false;
-    activate();
-    return;
-  }
-
-  const auto swipe = mappedInput.wasSwipe();
-  if (dismissOnUpSwipe && swipe == MappedInputManager::SwipeDir::Up && mappedInput.wasBottomEdgeUpSwipe()) {
-    SETTINGS.saveToFile();
-    finishToParent();
-    return;
-  }
-  const int pages = std::clamp(piccoPageCount, 1, kPiccoMaxPages);
-  const auto showPage = [&](const int page) {
-    if (page < 0 || page >= pages || page == piccoPage) return;
-    piccoPage = page;
-    piccoFollowSelection = false;
-    if (piccoFocus) {
-      const int end = page + 1 < pages ? piccoPageStarts[page + 1] : count;
-      for (int i = piccoPageStarts[page]; i < end; ++i) {
-        if (isRow(i)) {
-          selected = i;
-          break;
-        }
-      }
-    }
-    requestUpdate();
-  };
-  if (swipe == MappedInputManager::SwipeDir::Up) {
-    showPage(piccoPage + 1);
-    return;
-  }
-  if (swipe == MappedInputManager::SwipeDir::Down) {
-    showPage(piccoPage - 1);
-    return;
-  }
-
-  // The rocker moves row by row; the render follows the selection onto its page.
-  const auto step = [&](const int direction) {
-    if (!piccoFocus) {
-      piccoFocus = true;
-      int index = piccoPageStarts[std::clamp(piccoPage, 0, kPiccoMaxPages - 1)];
-      while (index < count && !isRow(index)) ++index;
-      if (index < count) selected = index;
-    } else {
-      int index = selected;
-      for (int n = 0; n < count; ++n) {
-        index += direction;
-        if (index >= count) index = 0;
-        if (index < 0) index = count - 1;
-        if (isRow(index)) break;
-      }
-      if (isRow(index)) selected = index;
-    }
-    piccoFollowSelection = true;
-    requestUpdate();
-  };
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (!piccoFocus) {
-      step(1);
-    } else if (isRow(selected)) {
-      activate();
-    }
-    return;
-  }
-  buttonNavigator.onNext([&] { step(1); });
-  buttonNavigator.onPrevious([&] { step(-1); });
-}
-
 void SettingsActivity::piccoLoop() {
+  const auto redraw = [this] { requestUpdate(); };
   if (piccoPicker.open) {
     const int count = static_cast<int>(piccoPicker.options.size());
-    piccoListInput(
-        count, piccoPickerSelected, [count](const int i) { return i >= 0 && i < count; },
-        [this] {
-          // Keep the callback alive past closePiccoPicker(), which resets the picker.
-          auto onSelect = std::move(piccoPicker.onSelect);
-          const int choice = piccoPickerSelected;
-          closePiccoPicker();
-          if (onSelect) onSelect(choice);
-        },
-        [this] { closePiccoPicker(); });
-    return;
-  }
-  int tappedId = -1;
-  if (mappedInput.wasItemTapped(tappedId) && tappedId >= kStepperIdBase) {
-    stepPiccoSetting((tappedId - kStepperIdBase) / 2, (tappedId - kStepperIdBase) % 2 ? 1 : -1);
+    const auto in = piccoList.input(
+        mappedInput, renderer, buttonNavigator, piccoTitle(), count, piccoPickerSelected,
+        [count](const int i) { return i >= 0 && i < count; }, redraw);
+    if (in.event == PiccoListView::Event::Back) {
+      closePiccoPicker();
+    } else if (in.event == PiccoListView::Event::Activate || in.event == PiccoListView::Event::Button) {
+      // Keep the callback alive past closePiccoPicker(), which resets the picker.
+      auto onSelect = std::move(piccoPicker.onSelect);
+      const int choice = piccoPickerSelected;
+      closePiccoPicker();
+      if (onSelect) onSelect(choice);
+    }
     return;
   }
   int selected = selectedSettingIndex - 1;
-  bool handled = false;  // activation and back pick their own selection
-  piccoListInput(
-      settingsCount, selected,
+  const auto in = piccoList.input(
+      mappedInput, renderer, buttonNavigator, piccoTitle(), settingsCount, selected,
       [this](const int index) {
         return index >= 0 && index < settingsCount && (*currentSettings)[index].type != SettingType::SECTION_HEADER;
       },
-      [this, &selected, &handled] {
-        handled = true;
-        selectedSettingIndex = selected + 1;
-        toggleCurrentSetting();
-        piccoFollowSelection = true;
-        requestUpdate();
-      },
-      [this, &handled] {
-        handled = true;
-        piccoBack();
-      });
-  if (!handled && selected >= 0 && selected < settingsCount) selectedSettingIndex = selected + 1;
+      redraw, dismissOnUpSwipe);
+  switch (in.event) {
+    case PiccoListView::Event::Back:
+      piccoBack();
+      return;
+    case PiccoListView::Event::Dismiss:
+      SETTINGS.saveToFile();
+      finishToParent();
+      return;
+    case PiccoListView::Event::Activate:
+    case PiccoListView::Event::Button:
+      selectedSettingIndex = selected + 1;
+      toggleCurrentSetting();
+      piccoList.followSelection = true;
+      requestUpdate();
+      return;
+    case PiccoListView::Event::Step:
+      stepPiccoSetting(in.index, in.direction);
+      return;
+    case PiccoListView::Event::Action:
+    case PiccoListView::Event::None:
+      break;
+  }
+  if (selected >= 0 && selected < settingsCount) selectedSettingIndex = selected + 1;
 }
 
 void SettingsActivity::drawPiccoList(const char* title, const Row* rows, const int count, const int selected,
                                      const char* note, const bool versionFooter) {
-  renderer.clearScreen();
-  if (mappedInput.hasTouchHardware()) {
-    TouchHeaderBackButton::drawCompact(renderer, title);
-  } else {
-    CompactHeader::drawTitle(renderer, title);
-  }
-  const Rect header = TouchHeaderBackButton::compactHeaderRect(renderer);
-  int top = header.y + header.height;
-  int bottom = PiccoPageIndicator::listBottom(renderer);
-  Rect band = PiccoPageIndicator::band(renderer);
-  const int width = renderer.getScreenWidth() - 2 * PiccoTokens::kGutter;
-
-  if (note != nullptr && note[0] != '\0') {
-    // A help note sits between the header and the rows. Before a section (T_SettingsLight) it
-    // takes the first section's 20 px and the section keeps its regular 30 above.
-    constexpr int kNoteLines = 3;
-    const bool sectionNext = count > 0 && rows[0].section;
-    const auto lines = renderer.wrappedText(SMALL_FONT_ID, note, width, kNoteLines);
-    int y = top + (sectionNext ? PiccoTokens::kSectionFirstAbove : PiccoTokens::kGroupGap);
-    for (const auto& line : lines) {
-      renderer.drawText(SMALL_FONT_ID, PiccoTokens::kGutter, y, line.c_str());
-      y += renderer.getLineHeight(SMALL_FONT_ID);
-    }
-    top = sectionNext ? y + PiccoTokens::kSectionAbove - PiccoTokens::kSectionFirstAbove : y;
-  }
-  if (versionFooter) {
-    // The version keeps the indicator's band; the indicator and the list move up.
-    const std::string version = AppVersion::versionLabel();
-    const std::string line = renderer.truncatedText(SMALL_FONT_ID, version.c_str(), width);
-    const int footerY = band.y + (band.height - renderer.getLineHeight(SMALL_FONT_ID)) / 2;
-    renderer.drawText(SMALL_FONT_ID,
-                      (renderer.getScreenWidth() - renderer.getTextWidth(SMALL_FONT_ID, line.c_str())) / 2, footerY,
-                      line.c_str());
-    band.y -= band.height;
-    bottom = std::min(bottom, band.y - PiccoTokens::kGroupGap);
-  }
-
-  std::vector<PiccoPagedList::Entry> entries(count);
-  std::vector<PiccoPagedList::Slot> slots(count);
-  for (int i = 0; i < count; ++i) {
-    entries[i].section = rows[i].section;
-    entries[i].height = PiccoSettingsRows::rowHeight(rows[i]);
-  }
-  const int pages =
-      PiccoPagedList::paginate(entries.data(), count, top, bottom, PiccoSettingsRows::sectionTextHeight(renderer),
-                               slots.data(), piccoPageStarts, kPiccoMaxPages, /*continuedLabels=*/true);
-  piccoPageCount = pages;
-  if ((piccoFocus || piccoFollowSelection) && selected >= 0 && selected < count) {
-    piccoPage = PiccoPagedList::pageOf(piccoPageStarts, pages, selected);
-  }
-  piccoPage = std::clamp(piccoPage, 0, pages - 1);
-  const int first = count > 0 ? piccoPageStarts[piccoPage] : 0;
-  const int end = PiccoPagedList::pageEnd(piccoPageStarts, pages, piccoPage, count);
-  if (PiccoPagedList::opensContinued(entries.data(), count, first)) {
-    const int owner = PiccoPagedList::owningSection(entries.data(), first);
-    PiccoSettingsRows::drawContinued(renderer, rows[owner].label, tr(STR_PICCO_CONTINUED_FORMAT),
-                                     PiccoPagedList::continuedLabelY(top));
-  }
-  PiccoSettingsRows::drawPage(renderer, rows, slots.data(), first, end, piccoFocus ? selected : -1);
-  for (int i = first; i < end; ++i) {
-    if (rows[i].section) continue;
-    // Later registrations win the hit test: the stepper buttons sit over their row.
-    TouchRegistry::getInstance().add(PiccoSettingsRows::rowRect(renderer, slots[i]), i, TouchRegistry::Item);
-    if (rows[i].trailing == Trailing::Stepper) {
-      const auto stepper = PiccoSettingsRows::stepperRects(renderer, slots[i]);
-      const auto& m = stepper.minus;
-      const auto& p = stepper.plus;
-      TouchRegistry::getInstance().add(Rect{m.x, m.y, m.width, m.height}, stepperId(i, false), TouchRegistry::Item);
-      TouchRegistry::getInstance().add(Rect{p.x, p.y, p.width, p.height}, stepperId(i, true), TouchRegistry::Item);
-    }
-  }
-  PiccoPageIndicator::draw(renderer, piccoPage + 1, pages, &band);
+  PiccoListView::Frame frame;
+  frame.title = title;
+  frame.note = note;
+  frame.versionFooter = versionFooter;
+  piccoList.draw(renderer, mappedInput, frame, rows, count, selected);
   renderer.displayBuffer();
 }
 
@@ -799,6 +669,16 @@ void SettingsActivity::renderPicco() {
         if (font.nameId == StrId::STR_FONT_SIZE) size = settingValueText(font);
       }
       values[i] = family.empty() || size.empty() ? family + size : family + " \xC2\xB7 " + size;
+    }
+    if (setting.action == SettingAction::ManageHyphenation) values[i] = hyphenationSummary();
+    if (setting.action == SettingAction::PiccoControls) {
+      // T_Settings: the tilt state, where the board has tilt.
+      const bool tilt = std::any_of(controlsSettings.begin(), controlsSettings.end(),
+                                    [](const SettingInfo& s) { return s.nameId == StrId::STR_TILT_PAGE_TURN; });
+      if (tilt) {
+        values[i] =
+            SETTINGS.tiltPageTurn == CrossPointSettings::TILT_OFF ? tr(STR_PICCO_TILT_OFF) : tr(STR_PICCO_TILT_ON);
+      }
     }
     if (setting.action == SettingAction::PiccoDisplay) {
       char sleep[32];

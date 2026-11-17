@@ -2,7 +2,12 @@
 
 #include <Memory.h>
 
+#include "AppCapabilities.h"
 #include "activities/Activity.h"
+#include "util/ButtonNavigator.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoListView.h"
+#endif
 #include "components/OptionPopup.h"
 
 class HyphenationManagerActivity final : public Activity {
@@ -23,6 +28,7 @@ class HyphenationManagerActivity final : public Activity {
  private:
 #ifdef SIMULATOR
   friend struct AssetDownloadSmokeTest;
+  friend struct PiccoScreens4B;
 #endif
   struct Catalog {
     char labels[10][128] = {};
@@ -37,4 +43,16 @@ class HyphenationManagerActivity final : public Activity {
   void select();
   void apply(bool remove);
   void connect();
+#if CROSSINK_APP_PICCO_UI
+  // Picco (T_HyphenationPacks): Installed / Available rows with Remove / Get in place of the
+  // popup; an installed pack's row opens Update / Remove. Errors keep the popup.
+  ButtonNavigator buttonNavigator_;
+  PiccoListView piccoList_;
+  int piccoRow_ = 1;
+  bool piccoActions_ = false;
+  int piccoActionRow_ = 0;
+  bool usesPicco() const;
+  void piccoLoop();
+  void renderPicco();
+#endif
 };

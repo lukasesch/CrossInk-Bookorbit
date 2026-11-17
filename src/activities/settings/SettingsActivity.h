@@ -18,6 +18,7 @@
 #include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
 #if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoListView.h"
 #include "components/picco/PiccoPagedList.h"
 #include "components/picco/PiccoSettingsRows.h"
 #endif
@@ -383,14 +384,9 @@ class SettingsActivity final : public Activity {
 #if CROSSINK_APP_PICCO_UI
   // Picco: grouped root (Reading / Device / Connections) instead of the four tabs, hand-drawn
   // paged rows (SettingsActivityPicco.cpp). Category pages reuse the lists above.
-  static constexpr int kPiccoMaxPages = 16;
   std::vector<SettingInfo> piccoRootSettings;
   bool piccoRoot = false;
-  bool piccoFocus = false;           // rocker focus frame shown
-  bool piccoFollowSelection = true;  // next render shows the selection's page
-  int piccoPage = 0;                 // written by render, read by loop
-  int piccoPageCount = 1;
-  int16_t piccoPageStarts[kPiccoMaxPages] = {};
+  PiccoListView piccoList;                                 // paging, rocker focus
   SettingAction piccoDirectSubmenu = SettingAction::None;  // a submenu the root opened directly
   StrId piccoDirectTitle = StrId::STR_NONE_OPT;
   bool usesPiccoSettings() const;
@@ -424,8 +420,6 @@ class SettingsActivity final : public Activity {
                        const char* note);
   void closePiccoPicker();
   int piccoPickerSelected = 0;
-  void piccoListInput(int count, int& selected, const std::function<bool(int)>& isRow,
-                      const std::function<void()>& activate, const std::function<void()>& back);
   void drawPiccoList(const char* title, const PiccoSettingsRows::Row* rows, int count, int selected, const char* note,
                      bool versionFooter);
 #endif

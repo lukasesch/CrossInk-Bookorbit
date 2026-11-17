@@ -14,6 +14,9 @@
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoListView.h"
+#endif
 #include "util/ButtonNavigator.h"
 
 class OptionPopup {
@@ -172,8 +175,17 @@ class OptionPopup {
     layoutValid = false;
   }
 
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+  // Picco: this owner's choice lists open as the full-page picker (T_OptionPicker) instead of
+  // the popup; confirmation dialogs stay popups. OptionPopupPicco.cpp.
+  void preferPiccoPage(const bool on = true) { piccoPreferred = on; }
+#endif
+
   bool handleInput(MappedInputManager& input, const std::function<void()>& requestUpdate) {
     if (!active) return false;
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+    if (piccoPage) return handlePiccoInput(input, requestUpdate);
+#endif
 
     const int count = static_cast<int>(labels().size());
     if (count <= 0) {
@@ -325,6 +337,12 @@ class OptionPopup {
 
   bool processRender(GfxRenderer& renderer, const MappedInputManager& input) const {
     if (!active) return false;
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+    if (piccoPage) {
+      renderPicco(renderer, input);
+      return true;
+    }
+#endif
     const auto popupLabels = input.mapLabels(
         confirmationMode ? MappedInputManager::Label(tr(STR_CANCEL)) : input.withBackArrow(tr(STR_BACK)),
         confirmationMode && footerFocused ? tr(STR_SAVE) : tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
@@ -528,6 +546,14 @@ class OptionPopup {
   int dividerAfterOption = -1;
   bool selectionArrow = false;
   ButtonNavigator buttonNavigator;
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+  bool piccoPreferred = false;
+  bool piccoPage = false;  // this show draws the full-page picker
+  int piccoCurrent = 0;    // the checked option
+  mutable PiccoListView piccoView;
+  bool handlePiccoInput(MappedInputManager& input, const std::function<void()>& requestUpdate);
+  void renderPicco(GfxRenderer& renderer, const MappedInputManager& input) const;
+#endif
   mutable Layout layout;
   mutable bool layoutValid = false;
 
@@ -562,6 +588,11 @@ class OptionPopup {
       selectedIndex = currentIndex;
     }
     active = true;
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+    piccoPage = piccoPreferred && !confirmationMode && UITheme::isPicco();
+    piccoCurrent = selectedIndex;
+    piccoView.reset();
+#endif
   }
 
   void prepareStandardShow() {

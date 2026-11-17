@@ -534,7 +534,7 @@ void SettingsActivity::enterCategory(int categoryIndex) {
 #if CROSSINK_APP_PICCO_UI
   piccoRoot = false;
   piccoDirectSubmenu = SettingAction::None;
-  piccoFollowSelection = true;
+  piccoList.followSelection = true;
 #endif
   activeSubmenu = SettingAction::None;
   parentSubmenu = SettingAction::None;
@@ -1114,9 +1114,9 @@ void SettingsActivity::onEnter() {
   parentSubmenu = SettingAction::None;
 #if CROSSINK_APP_PICCO_UI
   piccoRoot = usesPiccoSettings();
-  piccoFocus = false;
-  piccoFollowSelection = true;
-  piccoPage = 0;
+  piccoList.reset();
+  // Remaining choice popups (download languages, filename font, ...) open as full pages.
+  optionPopup.preferPiccoPage(usesPiccoSettings());
 #endif
   if (!isFileBrowserView()) {
     preserveQuickResumeTimeoutOn =

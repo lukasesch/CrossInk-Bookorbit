@@ -193,6 +193,12 @@ void FontDownloadActivity::onEnter() {
   applySharedUiTheme(app_, uiTarget_);
   app_.on(ACTION_ROW, &FontDownloadActivity::onRowEvent, this);
   app_.setScreen(&FontDownloadActivity::listScreen, this);
+#if defined(SIMULATOR) && CROSSINK_APP_PICCO_UI
+  if (simulatorOffline_) {
+    requestUpdate();
+    return;
+  }
+#endif
   WiFi.mode(WIFI_STA);
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
@@ -1114,6 +1120,12 @@ void FontDownloadActivity::buildListScreen(UiApp::ScreenType& screen) {
 // --- Input handling ---
 
 void FontDownloadActivity::loop() {
+#if CROSSINK_APP_PICCO_UI
+  if (state_ == FAMILY_LIST && usesPiccoList()) {
+    piccoListLoop();
+    return;
+  }
+#endif
   if (state_ == FAMILY_LIST) {
     if (TouchHeaderBackButton::wasTapped(mappedInput, renderer) ||
         mappedInput.wasPressed(MappedInputManager::Button::Back)) {
@@ -1232,6 +1244,13 @@ void FontDownloadActivity::loop() {
 // --- Rendering ---
 
 void FontDownloadActivity::render(RenderLock&&) {
+#if CROSSINK_APP_PICCO_UI
+  if (state_ == FAMILY_LIST && usesPiccoList()) {
+    renderPiccoList();
+    renderer.displayBuffer(screenTransitionRefresh_.modeFor(static_cast<uint8_t>(state_)));
+    return;
+  }
+#endif
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const int pageWidth = safe.width;

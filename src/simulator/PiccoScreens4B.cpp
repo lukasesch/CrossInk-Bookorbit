@@ -5,11 +5,18 @@
 #include <Logging.h>
 
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "AppCapabilities.h"
+#include "CrossPointSettings.h"
 #include "activities/ActivityManager.h"
+#include "activities/network/WifiSelectionActivity.h"
+#include "activities/settings/FontDownloadActivity.h"
+#include "activities/settings/HyphenationManagerActivity.h"
 #include "activities/settings/SettingsActivity.h"
+#include "activities/settings/StatusBarSettingsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 
 #if CROSSINK_APP_CAP_TOUCH && CROSSINK_APP_PICCO_UI
@@ -46,22 +53,179 @@ struct PiccoScreens4B {
   static void capturePages(SettingsActivity& screen, const Capture& capture, const std::string& name) {
     {
       RenderLock lock;
-      screen.piccoFocus = false;
-      screen.piccoFollowSelection = false;
-      screen.piccoPage = 0;
+      screen.piccoList.focus = false;
+      screen.piccoList.followSelection = false;
+      screen.piccoList.page = 0;
     }
     capture(name);
-    const int pages = screen.piccoPageCount;
+    const int pages = screen.piccoList.pageCount;
     for (int page = 1; page < pages; ++page) {
       {
         RenderLock lock;
-        screen.piccoPage = page;
+        screen.piccoList.page = page;
       }
       capture(name + "-p" + std::to_string(page + 1));
     }
   }
 
+  template <typename T>
+  static T& current(const char* what) {
+    auto* activity = dynamic_cast<T*>(activityManager.simulatorCurrentActivity());
+    if (!activity) {
+      LOG_ERR("SMOKE", "Picco screens 4B: %s is not the current screen", what);
+      std::_Exit(2);
+    }
+    return *activity;
+  }
+
+  // Every page of a PiccoListView screen, without a focus frame.
+  static void captureViewPages(PiccoListView& view, const Capture& capture, const std::string& name) {
+    {
+      RenderLock lock;
+      view.focus = false;
+      view.followSelection = false;
+      view.page = 0;
+    }
+    capture(name);
+    const int pages = view.pageCount;
+    for (int page = 1; page < pages; ++page) {
+      {
+        RenderLock lock;
+        view.page = page;
+      }
+      capture(name + "-p" + std::to_string(page + 1));
+    }
+  }
+
+  static WifiNetworkInfo network(const char* ssid, const int32_t rssi, const bool encrypted, const bool saved) {
+    WifiNetworkInfo n;
+    n.ssid = ssid;
+    n.rssi = rssi;
+    n.isEncrypted = encrypted;
+    n.hasSavedPassword = saved;
+    return n;
+  }
+
+  // T_Wifi(2), T_HyphenationPacks(2), T_Fonts, T_StatusBarSettings(2) on seeded data.
+  static void addSystemScreens(std::vector<std::function<int()>>& steps, const Capture& capture) {
+    steps.push_back([] {
+      activityManager.pushActivity(std::make_unique<WifiSelectionActivity>(renderer, mappedInputManager, false));
+      return 6;
+    });
+    steps.push_back([capture] {
+      auto& wifi = current<WifiSelectionActivity>("Wi-Fi");
+      {
+        RenderLock lock;
+        wifi.networks = {network("Home 2.4G", -48, true, true),    network("Office", -63, true, false),
+                         network("Guest", -75, false, false),      network("Library", -58, true, false),
+                         network("Cafe Lumen", -71, false, false), network("Neighbour", -82, true, false),
+                         network("Studio 5G", -66, true, false)};
+        wifi.realNetworkCount = wifi.networks.size();
+        wifi.appendHiddenNetworkEntry();
+        wifi.state = WifiSelectionState::NETWORK_LIST;
+        wifi.piccoList.reset();
+        wifi.piccoSelected = 1;
+      }
+      captureViewPages(wifi.piccoList, capture, "wifi");
+      {
+        RenderLock lock;
+        wifi.piccoList.focus = true;
+        wifi.piccoList.followSelection = true;
+        wifi.piccoSelected = 2;
+      }
+      capture("wifi-focus");
+      activityManager.popActivity();
+      return 6;
+    });
+
+    steps.push_back([] {
+      activityManager.pushActivity(std::make_unique<HyphenationManagerActivity>(renderer, mappedInputManager));
+      return 6;
+    });
+    steps.push_back([capture] {
+      auto& hyphenation = current<HyphenationManagerActivity>("Hyphenation");
+      captureViewPages(hyphenation.piccoList_, capture, "hyphenation");
+      {
+        RenderLock lock;
+        hyphenation.selected_ = 1;
+        hyphenation.piccoActions_ = true;
+        hyphenation.piccoActionRow_ = 0;
+        hyphenation.piccoList_.reset();
+      }
+      capture("hyphenation-actions");
+      activityManager.popActivity();
+      return 6;
+    });
+
+    steps.push_back([] {
+      auto fonts = std::make_unique<FontDownloadActivity>(renderer, mappedInputManager);
+      fonts->simulatorOffline_ = true;
+      struct Seed {
+        const char* name;
+        const char* description;
+        bool installed;
+        bool update;
+      };
+      static constexpr Seed kSeed[] = {{"Literata", "Chapter 41", true, false},
+                                       {"Atkinson Hyperlegible", "Chapter 41", true, true},
+                                       {"EB Garamond", "Chapter 41", false, false},
+                                       {"Merriweather", "Chapter 41", false, false}};
+      constexpr size_t kCount = sizeof(kSeed) / sizeof(kSeed[0]);
+      fonts->manifestFamilies_ = std::make_unique<FontDownloadActivity::ManifestFamily[]>(kCount);
+      for (size_t i = 0; i < kCount; ++i) {
+        auto& family = fonts->manifestFamilies_[i];
+        family.name = kSeed[i].name;
+        family.installName = kSeed[i].name;
+        family.description = kSeed[i].description;
+        family.installed = kSeed[i].installed;
+        family.hasUpdate = kSeed[i].update;
+      }
+      fonts->manifestFamilyCount_ = kCount;
+      fonts->state_ = FontDownloadActivity::FAMILY_LIST;
+      std::snprintf(fonts->updateAllLabel_, sizeof(fonts->updateAllLabel_), "%s (1.2 MB)", tr(STR_UPDATE_ALL));
+      std::strncpy(SETTINGS.sdFontFamilyName, "Literata", sizeof(SETTINGS.sdFontFamilyName) - 1);
+      activityManager.pushActivity(std::move(fonts));
+      return 6;
+    });
+    steps.push_back([capture] {
+      auto& fonts = current<FontDownloadActivity>("Fonts");
+      captureViewPages(fonts.piccoList_, capture, "fonts");
+      SETTINGS.sdFontFamilyName[0] = '\0';
+      activityManager.popActivity();
+      return 6;
+    });
+
+    steps.push_back([] {
+      activityManager.pushActivity(std::make_unique<StatusBarSettingsActivity>(renderer, mappedInputManager));
+      return 6;
+    });
+    steps.push_back([capture] {
+      auto& bar = current<StatusBarSettingsActivity>("Status bar");
+      captureViewPages(bar.piccoList, capture, "statusbar-root");
+      {
+        RenderLock lock;
+        bar.selectedIndex = 1;  // Bottom bar
+        bar.handleSelection();
+        bar.piccoList.reset();
+      }
+      captureViewPages(bar.piccoList, capture, "statusbar-bottom");
+      {
+        RenderLock lock;
+        bar.selectedIndex = 0;  // Left 1: the item picker
+        bar.openOptionPicker();
+      }
+      capture("statusbar-picker");
+      {
+        RenderLock lock;
+        bar.optionPopup.clear();
+      }
+      activityManager.popActivity();
+      return 6;
+    });
+  }
+
   static void add(std::vector<std::function<int()>>& steps, const Capture& capture) {
+    addSystemScreens(steps, capture);
     steps.push_back([] {
       activityManager.goToSettings();
       return 6;
@@ -72,8 +236,8 @@ struct PiccoScreens4B {
       {
         // Rocker focus on the second row of the root.
         RenderLock lock;
-        screen.piccoFocus = true;
-        screen.piccoFollowSelection = true;
+        screen.piccoList.focus = true;
+        screen.piccoList.followSelection = true;
         screen.selectedSettingIndex = 3;
       }
       capture("settings-root-focus");

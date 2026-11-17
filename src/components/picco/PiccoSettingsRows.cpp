@@ -80,6 +80,20 @@ int drawTrailing(const GfxRenderer& renderer, const Row& row, const int right, c
                         centerY - renderer.getLineHeight(kSmallFont) / 2, text.c_str(), true, EpdFontFamily::BOLD);
       return stepper.minus.x;
     }
+    case Trailing::Button: {
+      const Rect r = buttonRect(renderer, row, PiccoPagedList::Slot{static_cast<int16_t>(centerY), 0, false});
+      renderer.drawRoundedRect(r.x, r.y, r.width, r.height, kHairline, kSmallRadius, true);
+      const char* label = row.value != nullptr ? row.value : "";
+      const int iconW = row.buttonIcon != nullptr ? row.buttonIcon->w + kHeaderIconTextGap : 0;
+      const int textW = renderer.getTextWidth(kLabelFont, label);
+      int cx = r.x + (r.width - iconW - textW) / 2;
+      if (row.buttonIcon != nullptr) {
+        drawLucideIcon(renderer, *row.buttonIcon, cx, centerY - row.buttonIcon->h / 2);
+        cx += iconW;
+      }
+      renderer.drawText(kLabelFont, cx, centerY - renderer.getLineHeight(kLabelFont) / 2, label);
+      return r.x;
+    }
     case Trailing::None:
       return x;
   }
@@ -94,11 +108,19 @@ int drawTrailing(const GfxRenderer& renderer, const Row& row, const int right, c
 
 void drawRow(const GfxRenderer& renderer, const Row& row, const PiccoPagedList::Slot& slot) {
   using namespace PiccoTokens;
-  const int left = kGutter;
   const int right = renderer.getScreenWidth() - kGutter;
-  if (slot.hairline) renderer.fillRect(left, slot.y, right - left, kHairline, true);
+  if (slot.hairline) renderer.fillRect(kGutter, slot.y, right - kGutter, kHairline, true);
   const int centerY = slot.y + slot.height / 2;
-  const int trailingLeft = drawTrailing(renderer, row, right, centerY);
+  int trailingLeft = drawTrailing(renderer, row, right, centerY);
+  if (row.marker != nullptr) {
+    trailingLeft -= (trailingLeft < right ? kGroupGap : 0) + row.marker->w;
+    drawLucideIcon(renderer, *row.marker, trailingLeft, centerY - row.marker->h / 2);
+  }
+  int left = kGutter;
+  if (row.leading != nullptr) {
+    drawLucideIcon(renderer, *row.leading, left, centerY - row.leading->h / 2);
+    left += row.leading->w + kGroupGap;
+  }
   const int labelWidth = std::max(0, trailingLeft - kGroupGap - left);
 
   const int labelH = renderer.getLineHeight(kLabelFont);
@@ -119,12 +141,20 @@ void drawRow(const GfxRenderer& renderer, const Row& row, const PiccoPagedList::
 int sectionTextHeight(const GfxRenderer& renderer) { return renderer.getLineHeight(kSmallFont); }
 
 int16_t rowHeight(const Row& row) {
-  if (row.trailing == Trailing::Stepper) return PiccoTokens::kRowWithControl;
+  if (row.trailing == Trailing::Stepper || row.trailing == Trailing::Button) return PiccoTokens::kRowWithControl;
   return row.hint != nullptr && row.hint[0] != '\0' ? PiccoTokens::kRowWithHint : PiccoTokens::kRowOneLine;
 }
 
 PiccoLayout::Stepper stepperRects(const GfxRenderer& renderer, const PiccoPagedList::Slot& slot) {
   return PiccoLayout::stepperLayout(renderer.getScreenWidth() - PiccoTokens::kGutter, slot.y + slot.height / 2);
+}
+
+Rect buttonRect(const GfxRenderer& renderer, const Row& row, const PiccoPagedList::Slot& slot) {
+  const int labelW = renderer.getTextWidth(kLabelFont, row.value != nullptr ? row.value : "");
+  const int iconW = row.buttonIcon != nullptr ? row.buttonIcon->w : 0;
+  const auto box = PiccoLayout::rowButton(renderer.getScreenWidth() - PiccoTokens::kGutter, slot.y + slot.height / 2,
+                                          PiccoLayout::rowButtonWidth(labelW, iconW));
+  return Rect{box.x, box.y, box.width, box.height};
 }
 
 void drawContinued(const GfxRenderer& renderer, const char* sectionLabel, const char* continuedFormat, const int y) {

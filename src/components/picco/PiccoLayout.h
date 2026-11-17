@@ -180,6 +180,21 @@ constexpr Stepper stepperLayout(const int right, const int centerY) {
   return s;
 }
 
+// ---- Row button (T_Fonts "Get", T_HyphenationPacks "Remove") -----------------------------
+
+constexpr int kRowButtonMinW = 92;
+constexpr int kRowButtonPadX = 16;
+
+constexpr int rowButtonWidth(const int labelWidth, const int iconWidth) {
+  return maxOf(kRowButtonMinW,
+               labelWidth + 2 * kRowButtonPadX + (iconWidth > 0 ? iconWidth + PiccoTokens::kHeaderIconTextGap : 0));
+}
+
+// Framed 60 px control, right-aligned at `right`, centred on centerY.
+constexpr Box rowButton(const int right, const int centerY, const int width) {
+  return Box{right - width, centerY - PiccoTokens::kActionHeight / 2, width, PiccoTokens::kActionHeight};
+}
+
 // ---- Page indicator and swipe paging -----------------------------------------------------
 
 constexpr Box pageIndicatorBand(const Box& screen) {

@@ -6,8 +6,13 @@
 #include <freertos/task.h>
 
 #include <atomic>
+#include <string>
 
+#include "AppCapabilities.h"
 #include "activities/Activity.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoListView.h"
+#endif
 #include "components/OptionPopup.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
@@ -18,6 +23,7 @@
 class StatusBarSettingsActivity final : public Activity {
 #ifdef SIMULATOR
   friend struct StatusBarFeatureSmokeTest;
+  friend struct PiccoScreens4B;
 #endif
  public:
   explicit StatusBarSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool readerContext = false,
@@ -71,4 +77,26 @@ class StatusBarSettingsActivity final : public Activity {
   static void settingsScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildSettingsScreen(UiApp::ScreenType& screen);
+
+  // One row's text; label / value may point into the buffers, so a RowText is not copied.
+  struct RowText {
+    const char* label = "";
+    const char* value = nullptr;
+    const char* sectionHeading = nullptr;
+    bool toggle = false;
+    bool on = false;
+    std::string labelText;
+    std::string valueText;
+  };
+  void describeRow(int i, RowText& out) const;
+
+#if CROSSINK_APP_PICCO_UI
+  // Picco (T_StatusBarSettings): the same rows and slot model as sections of Picco rows, the
+  // bar's preview in a framed card; choices open the full-page picker.
+  PiccoListView piccoList;
+  int piccoRow = 0;
+  void piccoLoop();
+  void renderPicco();
+  int piccoRows(int16_t* order, const char** sections, int capacity) const;
+#endif
 };

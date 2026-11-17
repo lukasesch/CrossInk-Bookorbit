@@ -148,6 +148,11 @@ void StatusBarSettingsActivity::onEnter() {
   applySharedUiTheme(app, uiTarget);
   app.on(ACTION_ROW, &StatusBarSettingsActivity::onRowEvent, this);
   app.setScreen(&StatusBarSettingsActivity::settingsScreen, this);
+#if CROSSINK_APP_PICCO_UI
+  optionPopup.preferPiccoPage();
+  piccoList.reset();
+  piccoRow = 0;
+#endif
   requestUpdate();
 }
 
@@ -170,6 +175,9 @@ void StatusBarSettingsActivity::goBack() {
     selectedIndex = 0;
     topIndex = 0;
     listNav.reset();
+#if CROSSINK_APP_PICCO_UI
+    piccoList.reset();
+#endif
     refreshItemCount();
     requestUpdate();
   }
@@ -207,6 +215,12 @@ Rect StatusBarSettingsActivity::settingsHeaderRect() const {
 
 void StatusBarSettingsActivity::loop() {
   if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    piccoLoop();
+    return;
+  }
+#endif
   if (TouchHeaderBackButton::wasTapped(mappedInput, settingsHeaderRect())) {
     goBack();
     return;
@@ -268,6 +282,9 @@ void StatusBarSettingsActivity::handleSelection() {
     selectedIndex = 0;
     topIndex = 0;
     listNav.reset();
+#if CROSSINK_APP_PICCO_UI
+    piccoList.reset();
+#endif
     refreshItemCount();
     requestUpdate();
     return;
@@ -440,6 +457,69 @@ void StatusBarSettingsActivity::onRowEvent(const fui::ActionEvent& event, void* 
   self->handleSelection();
 }
 
+void StatusBarSettingsActivity::describeRow(const int i, RowText& out) const {
+  const auto config = view == View::Root ? ReaderStatusBarConfig{} : SETTINGS.readerStatusBar(selectedPosition());
+  if (displayContext && i == DISPLAY_TEXT_SIZE_ROW) {
+    out.label = tr(STR_STATUS_BAR_TEXT_SIZE);
+    out.value = I18N.get(textSizeNames[std::min<uint8_t>(SETTINGS.displayStatusBarTextSize, 2)]);
+  } else if (displayContext && i == DISPLAY_BATTERY_ROW) {
+    out.label = tr(STR_BATTERY);
+    out.value = batteryStyleLabel(SETTINGS.displayStatusBar.batteryStyle);
+    out.sectionHeading = tr(STR_OPTIONS);
+  } else if (displayContext) {
+    out.label = i == 0 ? tr(STR_DIR_LEFT) : i == 1 ? tr(STR_CENTER) : tr(STR_DIR_RIGHT);
+    out.valueText = itemLabel(SETTINGS.displayStatusBar.slots[i]);
+    out.value = out.valueText.c_str();
+    if (i == 0) out.sectionHeading = tr(STR_LAYOUT);
+  } else if (view == View::Root) {
+    out.label = I18N.get(rootLabels[i]);
+    out.value = i == 2   ? xtcModeLabel(SETTINGS.xtcStatusBarMode)
+                : i == 3 ? I18N.get(textSizeNames[std::min<uint8_t>(SETTINGS.statusBarTextSize, 2)])
+                         : ">";
+  } else {
+    const int item = i;
+    if (item <= SLOT_RIGHT_3) {
+      out.valueText = itemLabel(config.slots[item]);
+      if (item <= SLOT_LEFT_3) {
+        out.labelText = std::string(tr(STR_DIR_LEFT)) + " " + std::to_string(item + 1);
+      } else if (item == SLOT_CENTER) {
+        out.labelText = tr(STR_CENTER);
+      } else {
+        out.labelText = std::string(tr(STR_DIR_RIGHT)) + " " + std::to_string(item - SLOT_RIGHT_1 + 1);
+      }
+      out.label = out.labelText.c_str();
+      out.value = out.valueText.c_str();
+      if (item == SLOT_LEFT_1) out.sectionHeading = tr(STR_DIR_LEFT);
+      if (item == SLOT_CENTER) out.sectionHeading = tr(STR_CENTER);
+      if (item == SLOT_RIGHT_1) out.sectionHeading = tr(STR_DIR_RIGHT);
+    } else if (item == BATTERY_STYLE) {
+      out.label = tr(STR_BATTERY);
+      out.value = batteryStyleLabel(config.batteryStyle);
+      out.sectionHeading = tr(STR_OPTIONS);
+    } else if (item == PERCENTAGE_FORMAT) {
+      out.label = tr(STR_PERCENTAGE_FORMAT);
+      out.value = I18N.get(percentageFormatNames[config.percentageFormat]);
+    } else if (item == PROGRESS_BAR) {
+      out.label = tr(STR_PROGRESS_BAR);
+      out.value = progressModeLabel(config.progressBar);
+    } else if (item == HIDE_BAR) {
+      out.label = tr(STR_HIDE);
+      out.toggle = true;
+      out.on = config.hidden;
+    } else if (item == CENTER_ITEMS) {
+      out.label = tr(STR_CENTER_STATUS_BAR);
+      out.toggle = true;
+      out.on = config.centered;
+    } else if (item == SEPARATOR) {
+      out.label = tr(STR_SEPARATOR);
+      out.value = readerStatusBarSeparatorGlyph(config.separator);
+    } else {
+      out.label = tr(STR_PROGRESS_BAR_THICKNESS);
+      out.value = thicknessLabel(config.progressBarThickness);
+    }
+  }
+}
+
 void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
@@ -460,73 +540,19 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       fui::Insets{static_cast<int16_t>(contentTop), static_cast<int16_t>(pageWidth - (contentX + contentWidth)),
                   static_cast<int16_t>(pageHeight - (contentTop + contentHeight)), static_cast<int16_t>(contentX)});
 
-  const auto config = view == View::Root ? ReaderStatusBarConfig{} : SETTINGS.readerStatusBar(selectedPosition());
-  std::vector<std::string> labels(visibleItemCount);
-  std::vector<std::string> values(visibleItemCount);
+  std::vector<RowText> texts(visibleItemCount);
   std::vector<fui::ListItem> items;
   items.reserve(visibleItemCount);
   for (int i = 0; i < visibleItemCount; ++i) {
+    describeRow(i, texts[i]);
+    const RowText& text = texts[i];
     fui::ListItem row;
     row.actionValue = static_cast<int16_t>(i);
-    if (displayContext && i == DISPLAY_TEXT_SIZE_ROW) {
-      row.label = tr(STR_STATUS_BAR_TEXT_SIZE);
-      row.value = I18N.get(textSizeNames[std::min<uint8_t>(SETTINGS.displayStatusBarTextSize, 2)]);
-    } else if (displayContext && i == DISPLAY_BATTERY_ROW) {
-      row.label = tr(STR_BATTERY);
-      row.value = batteryStyleLabel(SETTINGS.displayStatusBar.batteryStyle);
-      row.sectionHeading = tr(STR_OPTIONS);
-    } else if (displayContext) {
-      row.label = i == 0 ? tr(STR_DIR_LEFT) : i == 1 ? tr(STR_CENTER) : tr(STR_DIR_RIGHT);
-      values[i] = itemLabel(SETTINGS.displayStatusBar.slots[i]);
-      row.value = values[i].c_str();
-      if (i == 0) row.sectionHeading = tr(STR_LAYOUT);
-    } else if (view == View::Root) {
-      row.label = I18N.get(rootLabels[i]);
-      row.value = i == 2   ? xtcModeLabel(SETTINGS.xtcStatusBarMode)
-                  : i == 3 ? I18N.get(textSizeNames[std::min<uint8_t>(SETTINGS.statusBarTextSize, 2)])
-                           : ">";
-    } else {
-      const int item = i;
-      if (item <= SLOT_RIGHT_3) {
-        values[i] = itemLabel(config.slots[item]);
-        if (item <= SLOT_LEFT_3) {
-          labels[i] = std::string(tr(STR_DIR_LEFT)) + " " + std::to_string(item + 1);
-        } else if (item == SLOT_CENTER) {
-          labels[i] = tr(STR_CENTER);
-        } else {
-          labels[i] = std::string(tr(STR_DIR_RIGHT)) + " " + std::to_string(item - SLOT_RIGHT_1 + 1);
-        }
-        row.label = labels[i].c_str();
-        row.value = values[i].c_str();
-        if (item == SLOT_LEFT_1) row.sectionHeading = tr(STR_DIR_LEFT);
-        if (item == SLOT_CENTER) row.sectionHeading = tr(STR_CENTER);
-        if (item == SLOT_RIGHT_1) row.sectionHeading = tr(STR_DIR_RIGHT);
-      } else if (item == BATTERY_STYLE) {
-        row.label = tr(STR_BATTERY);
-        row.value = batteryStyleLabel(config.batteryStyle);
-        row.sectionHeading = tr(STR_OPTIONS);
-      } else if (item == PERCENTAGE_FORMAT) {
-        row.label = tr(STR_PERCENTAGE_FORMAT);
-        row.value = I18N.get(percentageFormatNames[config.percentageFormat]);
-      } else if (item == PROGRESS_BAR) {
-        row.label = tr(STR_PROGRESS_BAR);
-        row.value = progressModeLabel(config.progressBar);
-      } else if (item == HIDE_BAR) {
-        row.label = tr(STR_HIDE);
-        row.toggle = true;
-        row.toggleChecked = config.hidden;
-      } else if (item == CENTER_ITEMS) {
-        row.label = tr(STR_CENTER_STATUS_BAR);
-        row.toggle = true;
-        row.toggleChecked = config.centered;
-      } else if (item == SEPARATOR) {
-        row.label = tr(STR_SEPARATOR);
-        row.value = readerStatusBarSeparatorGlyph(config.separator);
-      } else {
-        row.label = tr(STR_PROGRESS_BAR_THICKNESS);
-        row.value = thicknessLabel(config.progressBarThickness);
-      }
-    }
+    row.label = text.label;
+    row.value = text.value;
+    row.sectionHeading = text.sectionHeading;
+    row.toggle = text.toggle;
+    row.toggleChecked = text.on;
     items.push_back(row);
   }
   fui::ListProps props;
@@ -558,6 +584,12 @@ void StatusBarSettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
 
 void StatusBarSettingsActivity::render(RenderLock&&) {
   if (optionPopup.processRender(renderer, mappedInput)) return;
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    renderPicco();
+    return;
+  }
+#endif
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const char* headerTitle = displayContext       ? tr(STR_STATUS_BAR)

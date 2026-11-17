@@ -8,9 +8,13 @@
 #include <string>
 #include <vector>
 
+#include "AppCapabilities.h"
 #include "FontInstaller.h"
 #include "SdCardFont.h"
 #include "activities/Activity.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoListView.h"
+#endif
 #include "activities/ScreenTransitionRefresh.h"
 #include "util/ButtonNavigator.h"
 
@@ -40,6 +44,7 @@ struct Rect;
 class FontDownloadActivity : public Activity {
 #ifdef SIMULATOR
   friend struct ScreenCalibrationSmokeTest;
+  friend struct PiccoScreens4B;
 #endif
  public:
   explicit FontDownloadActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
@@ -171,4 +176,19 @@ class FontDownloadActivity : public Activity {
   int familyIndexFromList(int listIndex) const { return listIndex - specialRowCount(); }
   int listItemCount() const;
   size_t totalUpdateSize() const;
+
+#if CROSSINK_APP_PICCO_UI
+  // Picco family list (T_Fonts) in FontDownloadActivityPicco.cpp: Installed (current font
+  // checked) and Available with Get, Update all under More. Other states keep their screens.
+  PiccoListView piccoList_;
+  int piccoRow_ = 1;
+  bool usesPiccoList() const;
+#ifdef SIMULATOR
+  bool simulatorOffline_ = false;  // screen captures: open on a seeded list, no Wi-Fi
+#endif
+  // Row model: list indices (selectedIndex_ space) or PiccoSystemLists::kSection.
+  int piccoOrder(int16_t* order, int capacity) const;
+  void piccoListLoop();
+  void renderPiccoList();
+#endif
 };

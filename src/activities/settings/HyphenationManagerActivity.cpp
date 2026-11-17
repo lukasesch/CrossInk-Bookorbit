@@ -20,6 +20,9 @@ HyphenationManagerActivity::HyphenationManagerActivity(GfxRenderer& renderer, Ma
 void HyphenationManagerActivity::onEnter() {
   Activity::onEnter();
   mappedInput.setReaderTouchscreenOverride(true);
+#if CROSSINK_APP_PICCO_UI
+  popup_.preferPiccoPage();
+#endif
   // 1280 bytes, once per activity: labels outlive popup renders, but need not
   // consume permanent RAM or the small C3 main-task stack.
   catalog_ = makeUniqueNoThrow<Catalog>();
@@ -44,6 +47,24 @@ void HyphenationManagerActivity::showLanguages() {
     finish();
     return;
   }
+#if CROSSINK_APP_PICCO_UI
+  if (usesPicco()) {
+    // Names only; the rows show the state and the control.
+    for (size_t i = 0; i < languages.size; ++i) {
+      const auto& entry = languages.data[i];
+      const char uiCode[] = {static_cast<char>(entry.primaryTag[0] - 'a' + 'A'),
+                             static_cast<char>(entry.primaryTag[1] - 'a' + 'A'), '\0'};
+      std::snprintf(catalog_->labels[i], sizeof(catalog_->labels[i]), "%s",
+                    I18N.getLanguageName(I18n::languageFromCode(uiCode)));
+      if (!std::strcmp(wanted_, entry.primaryTag)) selected_ = static_cast<int>(i);
+    }
+    wanted_[0] = '\0';
+    popup_.clear();
+    piccoActions_ = false;
+    requestUpdate();
+    return;
+  }
+#endif
   int builtInIndex = -1;
   for (size_t i = 0; i < languages.size; ++i) {
     const auto& entry = languages.data[i];
@@ -167,9 +188,21 @@ void HyphenationManagerActivity::loop() {
     case Pending::None:
       break;
   }
+#if CROSSINK_APP_PICCO_UI
+  if (usesPicco() && !popup_.isActive()) {
+    piccoLoop();
+    return;
+  }
+#endif
   popup_.handleInput(mappedInput, [this] { requestUpdate(); });
 }
 void HyphenationManagerActivity::render(RenderLock&&) {
+#if CROSSINK_APP_PICCO_UI
+  if (usesPicco() && !popup_.isActive()) {
+    renderPicco();
+    return;
+  }
+#endif
   if (!popup_.isActive()) return;
   renderer.clearScreen();
   popup_.processRender(renderer, mappedInput);

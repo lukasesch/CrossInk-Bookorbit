@@ -10,8 +10,12 @@
 #include <string>
 #include <vector>
 
+#include "AppCapabilities.h"
 #include "activities/Activity.h"
 #include "activities/ScreenTransitionRefresh.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoListView.h"
+#endif
 #include "util/ButtonNavigator.h"
 
 struct Rect;
@@ -53,6 +57,9 @@ enum class WifiSelectionState {
  * The onComplete callback receives true if connected successfully, false if cancelled.
  */
 class WifiSelectionActivity final : public Activity {
+#ifdef SIMULATOR
+  friend struct PiccoScreens4B;
+#endif
   ButtonNavigator buttonNavigator;
 
   WifiSelectionState state = WifiSelectionState::SCANNING;
@@ -161,6 +168,16 @@ class WifiSelectionActivity final : public Activity {
   std::string getSignalStrengthIndicator(int32_t rssi) const;
 
   void onComplete(bool connected);
+
+#if CROSSINK_APP_PICCO_UI
+  // Picco network list (T_Wifi, T_Wifi2) in WifiSelectionActivityPicco.cpp; the scan,
+  // connect and prompt states keep their own screens.
+  PiccoListView piccoList;
+  int piccoSelected = 1;
+  bool usesPiccoList() const;
+  void piccoListLoop();
+  void renderPiccoList();
+#endif
 
  public:
   explicit WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool autoConnect = true,

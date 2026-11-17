@@ -359,6 +359,9 @@ void WifiSelectionActivity::showWifiScanFailure() {
   releaseWifiForNetworkList();
   state = WifiSelectionState::NETWORK_LIST;
   selectedNetworkIndex = 0;
+#if CROSSINK_APP_PICCO_UI
+  piccoList.reset();
+#endif
   requestUpdate();
 }
 
@@ -470,6 +473,9 @@ void WifiSelectionActivity::processWifiScanResults() {
   releaseWifiForNetworkList();
   state = WifiSelectionState::NETWORK_LIST;
   selectedNetworkIndex = 0;
+#if CROSSINK_APP_PICCO_UI
+  piccoList.reset();
+#endif
   requestUpdate();
 }
 
@@ -670,6 +676,9 @@ void WifiSelectionActivity::showNetworkListFromAutoConnect() {
   releaseWifiForNetworkList();
   state = WifiSelectionState::NETWORK_LIST;
   selectedNetworkIndex = 0;
+#if CROSSINK_APP_PICCO_UI
+  piccoList.reset();
+#endif
   requestUpdate();
 }
 
@@ -1152,6 +1161,12 @@ void WifiSelectionActivity::loop() {
   }
 
   // Handle network list state
+#if CROSSINK_APP_PICCO_UI
+  if (state == WifiSelectionState::NETWORK_LIST && usesPiccoList()) {
+    piccoListLoop();
+    return;
+  }
+#endif
   if (state == WifiSelectionState::NETWORK_LIST) {
     // Check for Back button to exit (cancel)
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
@@ -1248,6 +1263,13 @@ void WifiSelectionActivity::render(RenderLock&&) {
     return;
   }
 
+#if CROSSINK_APP_PICCO_UI
+  if (state == WifiSelectionState::NETWORK_LIST && usesPiccoList()) {
+    renderPiccoList();
+    renderer.displayBuffer(screenTransitionRefresh.modeFor(0));
+    return;
+  }
+#endif
   renderer.clearScreen();
 
   auto& theme = UITheme::getInstance();
