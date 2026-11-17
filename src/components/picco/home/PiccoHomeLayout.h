@@ -115,10 +115,11 @@ constexpr Box inset(const Box& b, const int dx, const int dy) {
   return Box{b.x + dx, b.y + dy, PiccoLayout::maxOf(0, b.width - 2 * dx), PiccoLayout::maxOf(0, b.height - 2 * dy)};
 }
 
-constexpr Hero heroLayout(const Box& screen) {
+// headerTop: the header band's top (UITheme::getHeaderRect); the hero keeps its board gap below it.
+constexpr Hero heroLayout(const Box& screen, const int headerTop) {
   using namespace PiccoTokens;
   Hero h{};
-  h.area = Box{screen.x + kGutter, screen.y + kHeroTop, PiccoLayout::maxOf(0, screen.width - 2 * kGutter), kCoverH};
+  h.area = Box{screen.x + kGutter, headerTop + kHeroTop, PiccoLayout::maxOf(0, screen.width - 2 * kGutter), kCoverH};
   h.cover = Box{h.area.x, h.area.y, kCoverW, kCoverH};
   const int textX = h.cover.right() + kHeroGap;
   h.text = Box{textX, h.area.y, PiccoLayout::maxOf(0, h.area.right() - textX), h.area.height};
@@ -202,11 +203,12 @@ constexpr std::array<Tile, kTileCount> tileLayout(const Box& screen, const int t
   return tiles;
 }
 
-constexpr Home homeLayout(const Box& screen) {
+// The tiles absorb the header offset: they fill down to the bottom gutter.
+constexpr Home homeLayout(const Box& screen, const int headerTop) {
   Home home{};
   home.screen = screen;
-  home.header = Box{screen.x, screen.y, screen.width, PiccoTokens::kHeaderHeight};
-  home.hero = heroLayout(screen);
+  home.header = Box{screen.x, headerTop, screen.width, PiccoTokens::kHeaderHeight};
+  home.hero = heroLayout(screen, headerTop);
   home.stats = statsLayout(screen, home.hero.area.bottom() + kSectionGap);
   home.tiles = tileLayout(screen, home.stats.card.bottom() + kSectionGap);
   return home;

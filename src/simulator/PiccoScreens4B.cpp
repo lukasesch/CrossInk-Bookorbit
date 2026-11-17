@@ -110,6 +110,22 @@ struct PiccoScreens4B {
       } else {
         LOG_ERR("SMOKE", "Picco screens 4B: refresh frequency did not open the picker");
       }
+      // Sleep after: the stepper row's Confirm opens the ladder picker; Language uses it too.
+      {
+        RenderLock lock;
+        screen.openPiccoSleepPicker();
+      }
+      capturePages(screen, capture, "settings-picker-sleep");
+      {
+        RenderLock lock;
+        screen.closePiccoPicker();
+      }
+      screen.openPiccoLanguagePicker();
+      capturePages(screen, capture, "settings-picker-language");
+      {
+        RenderLock lock;
+        screen.closePiccoPicker();
+      }
       return 0;
     });
 

@@ -13,7 +13,7 @@ using PiccoHomeStops::Target;
 
 namespace {
 constexpr Box kScreen{0, 0, 480, 800};
-constexpr Home kHome = homeLayout(kScreen);
+constexpr Home kHome = homeLayout(kScreen, 0);
 
 void expectBox(const Box& b, const int x, const int y, const int w, const int h) {
   EXPECT_EQ(b.x, x);

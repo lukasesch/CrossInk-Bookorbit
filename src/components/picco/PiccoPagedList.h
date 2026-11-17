@@ -57,10 +57,11 @@ constexpr int sectionAbove(const bool firstOnPage) {
 // Lays out entries from `start` between top and bottom. Fills out[start..] and returns the
 // first index that did not fit (count when everything fit). A section never ends a page
 // without its first row; a page always takes at least one entry so paging terminates.
-// A page that opens on a row (a section continued from the page before) starts kGroupGap down.
+// A page that opens on a row (a section continued from the page before) starts kGroupGap down,
+// or, with continuedLabel, below a repeated "<section> (continued)" label (T_Controls2).
 // No hairline above a page's or a section's first row (addendum Q3).
 inline int layoutPage(const Entry* entries, const int count, const int start, const int top, const int bottom,
-                      const int sectionTextHeight, Slot* out) {
+                      const int sectionTextHeight, Slot* out, const bool continuedLabel = false) {
   using namespace PiccoTokens;
   int y = top;
   bool previousWasRow = false;
@@ -75,7 +76,7 @@ inline int layoutPage(const Entry* entries, const int count, const int start, co
       y += block;
       previousWasRow = false;
     } else {
-      if (first) y += kGroupGap;
+      if (first) y += continuedLabel ? sectionAbove(true) + sectionTextHeight + kSectionBelow : kGroupGap;
       if (!first && y + entries[i].height > bottom) return i;
       out[i] = Slot{static_cast<int16_t>(y), entries[i].height, previousWasRow};
       y += entries[i].height;
@@ -85,15 +86,33 @@ inline int layoutPage(const Entry* entries, const int count, const int start, co
   return count;
 }
 
+// Section heading the entry at `index` belongs to; -1 when none precedes it.
+constexpr int owningSection(const Entry* entries, const int index) {
+  for (int i = index; i >= 0; --i) {
+    if (entries[i].section) return i;
+  }
+  return -1;
+}
+
+// Whether the page starting at `start` repeats its section's label as "(continued)".
+constexpr bool opensContinued(const Entry* entries, const int count, const int start) {
+  return start > 0 && start < count && !entries[start].section && owningSection(entries, start) >= 0;
+}
+
+// Text top of a repeated "(continued)" label on a page whose list starts at `top`.
+constexpr int continuedLabelY(const int top) { return top + PiccoTokens::kSectionFirstAbove; }
+
 // Page starts for the whole list; returns the page count (>= 1), at most maxPages.
+// continuedLabels: pages that open mid-section repeat the section label (opensContinued).
 inline int paginate(const Entry* entries, const int count, const int top, const int bottom, const int sectionTextHeight,
-                    Slot* out, int16_t* pageStarts, const int maxPages) {
+                    Slot* out, int16_t* pageStarts, const int maxPages, const bool continuedLabels = false) {
   if (maxPages <= 0) return 0;
   pageStarts[0] = 0;
   int pages = 1;
   int start = 0;
   while (start < count) {
-    const int next = layoutPage(entries, count, start, top, bottom, sectionTextHeight, out);
+    const bool continued = continuedLabels && opensContinued(entries, count, start);
+    const int next = layoutPage(entries, count, start, top, bottom, sectionTextHeight, out, continued);
     if (next >= count) break;
     if (pages == maxPages) break;
     pageStarts[pages++] = static_cast<int16_t>(next);

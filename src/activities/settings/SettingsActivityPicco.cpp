@@ -8,9 +8,11 @@
 #include <CrossInkHalFrontlight.h>
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <Logging.h>
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "AppVersion.h"
@@ -23,7 +25,10 @@
 #include "components/UITheme.h"
 #include "components/picco/PiccoPageIndicator.h"
 #include "components/picco/PiccoSettingsRows.h"
+#include "components/picco/PiccoValueSteps.h"
 #include "fontIds.h"
+#include "util/PluginEvents.h"
+#include "util/SlideSwitch.h"
 
 namespace {
 using PiccoSettingsRows::Row;
@@ -82,6 +87,74 @@ SettingAction rootActionFor(const int category) {
   }
 }
 
+bool copyByName(std::vector<SettingInfo>& target, const std::vector<SettingInfo>& source, const StrId nameId) {
+  const auto it =
+      std::find_if(source.begin(), source.end(), [nameId](const SettingInfo& s) { return s.nameId == nameId; });
+  if (it == source.end()) return false;
+  target.push_back(*it);
+  return true;
+}
+
+void eraseByName(std::vector<SettingInfo>& list, const StrId nameId) {
+  list.erase(std::remove_if(list.begin(), list.end(), [nameId](const SettingInfo& s) { return s.nameId == nameId; }),
+             list.end());
+}
+
+// Second line under a row's label (T_SettingsDisplay, T_SettingsLight2, T_Controls, T_ControlsTilt,
+// T_SettingsSystem); nullptr when the board shows none.
+const char* piccoHint(const SettingInfo& setting) {
+  switch (setting.nameId) {
+    case StrId::STR_QUICK_RESUME_TIMEOUT:
+      return tr(STR_PICCO_HINT_QUICK_RESUME);
+    case StrId::STR_REFRESH_FREQ:
+      return tr(STR_PICCO_HINT_FULL_REFRESH);
+    case StrId::STR_RESTORE_LIGHT_ON_WAKE:
+      return tr(STR_PICCO_HINT_RESTORE_LIGHT);
+    case StrId::STR_KEEP_CLOCK_IN_SLEEP:
+      return tr(STR_PICCO_HINT_KEEP_CLOCK);
+    case StrId::STR_CUSTOM_BOOTSCREEN:
+      return tr(STR_PICCO_HINT_BOOT_SCREEN);
+    case StrId::STR_DISABLE_TOUCHSCREEN:
+      return tr(STR_PICCO_HINT_TOUCHSCREEN);
+    case StrId::STR_TILT_PAGE_TURN:
+      return tr(STR_PICCO_HINT_TILT);
+    case StrId::STR_TILT_NEXT_PAGE_ONLY:
+      return tr(STR_PICCO_HINT_TILT_NEXT_ONLY);
+    case StrId::STR_PWR_BTN_FOOTNOTE_BACK:
+      return tr(STR_PICCO_HINT_FOOTNOTE_BACK);
+    default:
+      return nullptr;
+  }
+}
+
+// Rows with an inline minus / value / plus stepper (T_SettingsDisplay "Sleep after", "Full refresh").
+bool isPiccoStepper(const SettingInfo& setting) {
+  return setting.nameId == StrId::STR_TIME_TO_SLEEP || setting.nameId == StrId::STR_REFRESH_FREQ;
+}
+
+// Touch ids of a stepper row's buttons, above every row index.
+constexpr int kStepperIdBase = 1000;
+constexpr int stepperId(const int row, const bool plus) { return kStepperIdBase + 2 * row + (plus ? 1 : 0); }
+
+void formatSleepMinutes(const unsigned minutes, char* out, const size_t len) {
+  if (minutes >= CrossPointSettings::SLEEP_TIMEOUT_NEVER_MINUTES) {
+    std::snprintf(out, len, "%s", tr(STR_NEVER));
+  } else {
+    std::snprintf(out, len, tr(STR_SLEEP_TIMER_VALUE_FORMAT), minutes);
+  }
+}
+
+int enumIndexOf(const SettingInfo& setting, const uint8_t raw) {
+  if (setting.enumRawValues.empty()) return raw;
+  const auto it = std::find(setting.enumRawValues.begin(), setting.enumRawValues.end(), raw);
+  return it == setting.enumRawValues.end() ? 0 : static_cast<int>(it - setting.enumRawValues.begin());
+}
+
+uint8_t enumRawAt(const SettingInfo& setting, const int index) {
+  if (setting.enumRawValues.empty()) return static_cast<uint8_t>(index);
+  return setting.enumRawValues[std::clamp<int>(index, 0, static_cast<int>(setting.enumRawValues.size()) - 1)];
+}
+
 bool opensSomething(const SettingInfo& setting) {
   return setting.type == SettingType::SUBMENU || setting.type == SettingType::ACTION ||
          setting.type == SettingType::STRING || setting.type == SettingType::VALUE;
@@ -95,6 +168,10 @@ void SettingsActivity::rebuildPiccoLists(const std::vector<SettingInfo>& allSett
   systemSettings.erase(std::remove_if(systemSettings.begin(), systemSettings.end(),
                                       [](const SettingInfo& s) { return isConnectionAction(s.action); }),
                        systemSettings.end());
+  reflowPiccoDisplay(allSettings);
+  reflowPiccoLight(allSettings);
+  reflowPiccoControls(allSettings);
+  reflowPiccoSystem();
 
   piccoRootSettings.clear();
   piccoRootSettings.reserve(14);
@@ -118,6 +195,149 @@ void SettingsActivity::rebuildPiccoLists(const std::vector<SettingInfo>& allSett
 #if CROSSINK_APP_CAP_OPDS
   piccoRootSettings.push_back(SettingInfo::Action(StrId::STR_PICCO_OPDS_CATALOGS, SettingAction::OPDSBrowser));
 #endif
+}
+
+// T_SettingsDisplay(2): Home, Sleep, Refresh, Screen. Frontlight moves to the root's Light row;
+// Sleep after comes over from System > Device and Quick resume from the sleep-screen page.
+void SettingsActivity::reflowPiccoDisplay(const std::vector<SettingInfo>& allSettings) {
+  const std::vector<SettingInfo> upstream = std::move(displaySettings);
+  displaySettings.clear();
+  displaySettings.reserve(upstream.size() + 6);
+  std::vector<SettingInfo>& out = displaySettings;
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_HOME));
+  copyByName(out, upstream, StrId::STR_UI_THEME);
+  copyByName(out, upstream, StrId::STR_SWAP_LIBRARY_FILE_BROWSER);
+  addSettingByName(out, allSettings, StrId::STR_QUICK_RESUME_TIMEOUT);
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_SLEEP));
+  out.push_back(SettingInfo::Submenu(StrId::STR_SLEEP_SCREEN, SettingAction::DisplaySleepScreen));
+  addSettingByName(out, allSettings, StrId::STR_TIME_TO_SLEEP);
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_REFRESH));
+  copyByName(out, upstream, StrId::STR_REFRESH_FREQ);
+  copyByName(out, upstream, StrId::STR_SUNLIGHT_FADING_FIX);
+  copyByName(out, upstream, StrId::STR_READER_DARK_MODE);
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_SCREEN));
+  copyByName(out, upstream, StrId::STR_UI_SCALE);
+  out.push_back(SettingInfo::Action(StrId::STR_STATUS_BAR, SettingAction::DisplayStatusBar));
+  out.push_back(SettingInfo::Action(StrId::STR_SCREEN_CALIBRATION, SettingAction::ScreenCalibration));
+  eraseByName(displaySleepSettings, StrId::STR_QUICK_RESUME_TIMEOUT);
+}
+
+// T_SettingsLight(2): Default, Slide switch, Schedule, Wake.
+void SettingsActivity::reflowPiccoLight(const std::vector<SettingInfo>& allSettings) {
+  if (!Frontlight.present()) return;
+  const std::vector<SettingInfo> upstream = std::move(displayFrontlightSettings);
+  displayFrontlightSettings.clear();
+  displayFrontlightSettings.reserve(upstream.size() + 5);
+  std::vector<SettingInfo>& out = displayFrontlightSettings;
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_DEFAULT));
+  for (const auto& s : upstream) {
+    if (s.action == SettingAction::FrontlightPanel) out.push_back(s);
+  }
+  if (deviceHasSlideSwitch(gpio)) {
+    out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_SLIDE_SWITCH));
+    addSettingByKey(out, allSettings, "slideSwitchAction");
+  }
+  if (hasSettingByName(upstream, StrId::STR_FRONTLIGHT_SCHEDULE)) {
+    out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_SCHEDULE));
+    copyByName(out, upstream, StrId::STR_FRONTLIGHT_SCHEDULE);
+    copyByName(out, upstream, StrId::STR_START);
+    copyByName(out, upstream, StrId::STR_END);
+  }
+  if (hasSettingByName(upstream, StrId::STR_RESTORE_LIGHT_ON_WAKE)) {
+    out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_WAKE));
+    copyByName(out, upstream, StrId::STR_RESTORE_LIGHT_ON_WAKE);
+  }
+}
+
+// T_Controls(2), T_ControlsTilt: Buttons, Touch, Gestures, Tilt, Footnotes. Power settings and
+// taps come up from their sub-pages; the touchscreen toggle comes over from Text & fonts.
+void SettingsActivity::reflowPiccoControls(const std::vector<SettingInfo>& allSettings) {
+  const std::vector<SettingInfo> upstream = std::move(controlsSettings);
+  controlsSettings.clear();
+  controlsSettings.reserve(upstream.size() + controlsPowerSettings.size() + controlsTapsGesturesSettings.size() + 6);
+  std::vector<SettingInfo>& out = controlsSettings;
+  const bool slideSwitchInLight = Frontlight.present();
+
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_BUTTONS));
+  for (const auto& s : controlsPowerSettings) {
+    if (s.nameId != StrId::STR_PWR_BTN_FOOTNOTE_BACK) out.push_back(s);
+  }
+  for (const auto& s : upstream) {
+    const bool button =
+        s.action == SettingAction::ControlsHomeButton || s.action == SettingAction::ControlsFrontButtons ||
+        s.action == SettingAction::ControlsSideButtons || s.action == SettingAction::QuickActions ||
+        settingKeyIs(s, "menuNavigation") || (!slideSwitchInLight && settingKeyIs(s, "slideSwitchAction"));
+    if (button) out.push_back(s);
+  }
+
+  const size_t touchAt = out.size();
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_TOUCH));
+  if (copyByName(out, readerSettings, StrId::STR_DISABLE_TOUCHSCREEN)) {
+    eraseByName(readerSettings, StrId::STR_DISABLE_TOUCHSCREEN);
+  }
+  for (const auto& s : controlsTapsGesturesSettings) {
+    if (s.type != SettingType::SUBMENU && s.nameId != StrId::STR_TWO_FINGER_ROTATION) out.push_back(s);
+  }
+  if (out.size() == touchAt + 1) out.pop_back();
+
+  const size_t gesturesAt = out.size();
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_GESTURES));
+  for (const auto& s : controlsTapsGesturesSettings) {
+    if (s.type == SettingType::SUBMENU || s.nameId == StrId::STR_TWO_FINGER_ROTATION) out.push_back(s);
+  }
+  if (out.size() == gesturesAt + 1) out.pop_back();
+
+  const size_t tiltAt = out.size();
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_TILT));
+  copyByName(out, upstream, StrId::STR_TILT_PAGE_TURN);
+  copyByName(out, upstream, StrId::STR_TILT_PAGE_TURN_DIRECTION);
+  copyByName(out, upstream, StrId::STR_TILT_SENSITIVITY);
+  copyByName(out, upstream, StrId::STR_TILT_NEXT_PAGE_ONLY);
+  if (out.size() == tiltAt + 1) out.pop_back();
+
+  if (hasSettingByName(controlsPowerSettings, StrId::STR_PWR_BTN_FOOTNOTE_BACK)) {
+    out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_FOOTNOTES));
+    copyByName(out, controlsPowerSettings, StrId::STR_PWR_BTN_FOOTNOTE_BACK);
+  }
+  (void)allSettings;
+}
+
+// T_SettingsSystem(2): Language & time, Device, Files, then the remaining System rows under More.
+void SettingsActivity::reflowPiccoSystem() {
+  const std::vector<SettingInfo> upstream = std::move(systemSettings);
+  systemSettings.clear();
+  systemSettings.reserve(systemDeviceSettings.size() + systemFilesCacheSettings.size() + upstream.size() + 4);
+  std::vector<SettingInfo>& out = systemSettings;
+  const auto isDeviceRow = [](const SettingInfo& s) {
+    return s.nameId == StrId::STR_DEVICE_NAME || s.nameId == StrId::STR_CUSTOM_BOOTSCREEN ||
+           s.action == SettingAction::KeyboardLayouts || s.action == SettingAction::FilenameFallbackFont;
+  };
+
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_LANGUAGE_TIME));
+  for (const auto& s : systemDeviceSettings) {
+    // Sleep after lives on Display & sleep.
+    if (!isDeviceRow(s) && s.nameId != StrId::STR_TIME_TO_SLEEP) out.push_back(s);
+  }
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_SYSTEM_DEVICE));
+  for (const auto& s : systemDeviceSettings) {
+    if (isDeviceRow(s) && s.action != SettingAction::KeyboardLayouts && s.action != SettingAction::FilenameFallbackFont)
+      out.push_back(s);
+  }
+  for (const auto& s : upstream) {
+    if (s.action == SettingAction::Plugins) out.push_back(s);
+  }
+  for (const auto& s : systemDeviceSettings) {
+    if (s.action == SettingAction::KeyboardLayouts || s.action == SettingAction::FilenameFallbackFont) out.push_back(s);
+  }
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_FILES));
+  out.insert(out.end(), systemFilesCacheSettings.begin(), systemFilesCacheSettings.end());
+  out.push_back(SettingInfo::SectionHeader(StrId::STR_PICCO_SECTION_MORE));
+  for (const auto& s : upstream) {
+    if (s.action != SettingAction::SystemDevice && s.action != SettingAction::SystemFilesCache &&
+        s.action != SettingAction::Plugins) {
+      out.push_back(s);
+    }
+  }
 }
 
 void SettingsActivity::selectFirstPiccoRow() {
@@ -187,6 +407,110 @@ void SettingsActivity::piccoBack() {
     }
   }
   requestUpdate();
+}
+
+void SettingsActivity::stepPiccoSetting(const int index, const int direction) {
+  if (index < 0 || index >= settingsCount) return;
+  const SettingInfo& setting = (*currentSettings)[index];
+  if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
+    SETTINGS.sleepTimeoutMinutes = static_cast<uint8_t>(PiccoValueSteps::step(
+        PiccoValueSteps::kSleepMinutes, PiccoValueSteps::kSleepMinutesCount, SETTINGS.sleepTimeoutMinutes, direction));
+  } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
+    const int count = static_cast<int>(settingEnumOptionCount(setting));
+    const int next = PiccoValueSteps::stepIndex(enumIndexOf(setting, SETTINGS.*(setting.valuePtr)), count, direction);
+    SETTINGS.*(setting.valuePtr) = enumRawAt(setting, next);
+  } else {
+    return;
+  }
+  SETTINGS.saveToFile();
+  selectedSettingIndex = index + 1;
+  piccoFollowSelection = true;
+  requestUpdate();
+}
+
+bool SettingsActivity::openPiccoSleepPicker() {
+  if (!usesPiccoSettings()) return false;
+  std::vector<std::string> options;
+  options.reserve(PiccoValueSteps::kSleepMinutesCount);
+  char label[32];
+  for (const uint16_t minutes : PiccoValueSteps::kSleepMinutes) {
+    formatSleepMinutes(minutes, label, sizeof(label));
+    options.emplace_back(label);
+  }
+  const int current = PiccoValueSteps::indexFor(PiccoValueSteps::kSleepMinutes, PiccoValueSteps::kSleepMinutesCount,
+                                                SETTINGS.sleepTimeoutMinutes);
+  openPiccoPicker(
+      StrId::STR_TIME_TO_SLEEP, std::move(options), current,
+      [this](const int choice) {
+        if (choice < 0 || choice >= PiccoValueSteps::kSleepMinutesCount) return;
+        SETTINGS.sleepTimeoutMinutes = static_cast<uint8_t>(PiccoValueSteps::kSleepMinutes[choice]);
+        SETTINGS.saveToFile();
+      },
+      nullptr);
+  return true;
+}
+
+bool SettingsActivity::openPiccoLanguagePicker() {
+  if (!usesPiccoSettings()) return false;
+  RenderLock lock(*this);
+  languageCatalog.reset();
+  // Same bounded catalog as the popup path; the picker copies the names it shows.
+  languageCatalog.init(MemoryPool::None);
+  const auto status = languageCatalog ? I18N.discover(*languageCatalog.get()) : language_cache::Result::Memory;
+  const bool cached = std::strcmp(I18N.getCode(), "EN") != 0;
+  std::vector<std::string> options;
+  int current = cached ? 1 : 0;
+  bool duplicates = false;
+  if (status == language_cache::Result::Ok) {
+    options.reserve(languageCatalog->count);
+    for (size_t i = 0; i < languageCatalog->count; ++i) {
+      if (std::strcmp(languageCatalog->code(i), I18N.getCode()) == 0) current = static_cast<int>(i);
+      duplicates = duplicates || languageCatalog->disabled(i);
+      options.emplace_back(languageCatalog->name(i));
+    }
+  } else {
+    LOG_ERR("LANG", "Language picker: %s", language_cache::resultName(status));
+    languageCatalog.reset();
+    options.emplace_back("English");
+    if (cached) options.emplace_back(I18N.getName());
+  }
+  const char* note = status == language_cache::Result::Ok
+                         ? (duplicates ? tr(STR_LANGUAGE_DUPLICATE) : tr(STR_LANGUAGE_APPLY_HINT))
+                     : status == language_cache::Result::Memory   ? tr(STR_MEMORY_ERROR)
+                     : status == language_cache::Result::TooLarge ? tr(STR_LANGUAGE_CATALOG_LIMIT)
+                                                                  : tr(STR_LANGUAGE_IO_ERROR);
+  openPiccoPicker(
+      StrId::STR_LANGUAGE, std::move(options), current,
+      [this](const int index) {
+        if (index < 0) return;
+        if (languageCatalog) {
+          if (static_cast<size_t>(index) >= languageCatalog->count || languageCatalog->disabled(index)) return;
+          languageCatalog->select(index, pendingLanguage);
+        } else {
+          std::strcpy(pendingLanguage.code, index ? I18N.getCode() : "EN");
+          pendingLanguage.path[0] = '\0';
+          pendingLanguage.generation = index ? I18N.getGeneration() : 0;
+        }
+        // Installation starts on the next loop, after this callback returns.
+      },
+      note);
+  return true;
+}
+
+bool SettingsActivity::openPiccoPluginsPicker() {
+  if (!usesPiccoSettings()) return false;
+  std::vector<std::string> options{tr(STR_ENABLED), tr(STR_DISABLED)};
+  openPiccoPicker(
+      StrId::STR_PLUGINS, std::move(options), SETTINGS.pluginsEnabled ? 0 : 1,
+      [this](const int index) {
+        SETTINGS.pluginsEnabled = index == 0 ? 1 : 0;
+        pluginevents::refreshSubscriptions();
+        if (SETTINGS.pluginsEnabled) SETTINGS.pluginHubPromptHidden = 0;
+        SETTINGS.saveToFile();
+        rebuildSettingsLists();
+      },
+      nullptr);
+  return true;
 }
 
 void SettingsActivity::openPiccoPicker(const StrId title, std::vector<std::string> options, const int current,
@@ -303,6 +627,11 @@ void SettingsActivity::piccoLoop() {
         [this] { closePiccoPicker(); });
     return;
   }
+  int tappedId = -1;
+  if (mappedInput.wasItemTapped(tappedId) && tappedId >= kStepperIdBase) {
+    stepPiccoSetting((tappedId - kStepperIdBase) / 2, (tappedId - kStepperIdBase) % 2 ? 1 : -1);
+    return;
+  }
   int selected = selectedSettingIndex - 1;
   bool handled = false;  // activation and back pick their own selection
   piccoListInput(
@@ -339,15 +668,17 @@ void SettingsActivity::drawPiccoList(const char* title, const Row* rows, const i
   const int width = renderer.getScreenWidth() - 2 * PiccoTokens::kGutter;
 
   if (note != nullptr && note[0] != '\0') {
-    // A picker's help note sits between the header and its rows.
+    // A help note sits between the header and the rows. Before a section (T_SettingsLight) it
+    // takes the first section's 20 px and the section keeps its regular 30 above.
     constexpr int kNoteLines = 3;
+    const bool sectionNext = count > 0 && rows[0].section;
     const auto lines = renderer.wrappedText(SMALL_FONT_ID, note, width, kNoteLines);
-    int y = top + PiccoTokens::kGroupGap;
+    int y = top + (sectionNext ? PiccoTokens::kSectionFirstAbove : PiccoTokens::kGroupGap);
     for (const auto& line : lines) {
       renderer.drawText(SMALL_FONT_ID, PiccoTokens::kGutter, y, line.c_str());
       y += renderer.getLineHeight(SMALL_FONT_ID);
     }
-    top = y;
+    top = sectionNext ? y + PiccoTokens::kSectionAbove - PiccoTokens::kSectionFirstAbove : y;
   }
   if (versionFooter) {
     // The version keeps the indicator's band; the indicator and the list move up.
@@ -369,7 +700,7 @@ void SettingsActivity::drawPiccoList(const char* title, const Row* rows, const i
   }
   const int pages =
       PiccoPagedList::paginate(entries.data(), count, top, bottom, PiccoSettingsRows::sectionTextHeight(renderer),
-                               slots.data(), piccoPageStarts, kPiccoMaxPages);
+                               slots.data(), piccoPageStarts, kPiccoMaxPages, /*continuedLabels=*/true);
   piccoPageCount = pages;
   if ((piccoFocus || piccoFollowSelection) && selected >= 0 && selected < count) {
     piccoPage = PiccoPagedList::pageOf(piccoPageStarts, pages, selected);
@@ -377,10 +708,22 @@ void SettingsActivity::drawPiccoList(const char* title, const Row* rows, const i
   piccoPage = std::clamp(piccoPage, 0, pages - 1);
   const int first = count > 0 ? piccoPageStarts[piccoPage] : 0;
   const int end = PiccoPagedList::pageEnd(piccoPageStarts, pages, piccoPage, count);
+  if (PiccoPagedList::opensContinued(entries.data(), count, first)) {
+    const int owner = PiccoPagedList::owningSection(entries.data(), first);
+    PiccoSettingsRows::drawContinued(renderer, rows[owner].label, tr(STR_PICCO_CONTINUED_FORMAT),
+                                     PiccoPagedList::continuedLabelY(top));
+  }
   PiccoSettingsRows::drawPage(renderer, rows, slots.data(), first, end, piccoFocus ? selected : -1);
   for (int i = first; i < end; ++i) {
-    if (!rows[i].section) {
-      TouchRegistry::getInstance().add(PiccoSettingsRows::rowRect(renderer, slots[i]), i, TouchRegistry::Item);
+    if (rows[i].section) continue;
+    // Later registrations win the hit test: the stepper buttons sit over their row.
+    TouchRegistry::getInstance().add(PiccoSettingsRows::rowRect(renderer, slots[i]), i, TouchRegistry::Item);
+    if (rows[i].trailing == Trailing::Stepper) {
+      const auto stepper = PiccoSettingsRows::stepperRects(renderer, slots[i]);
+      const auto& m = stepper.minus;
+      const auto& p = stepper.plus;
+      TouchRegistry::getInstance().add(Rect{m.x, m.y, m.width, m.height}, stepperId(i, false), TouchRegistry::Item);
+      TouchRegistry::getInstance().add(Rect{p.x, p.y, p.width, p.height}, stepperId(i, true), TouchRegistry::Item);
     }
   }
   PiccoPageIndicator::draw(renderer, piccoPage + 1, pages, &band);
@@ -418,21 +761,48 @@ void SettingsActivity::renderPicco() {
       continue;
     }
     row.label = I18N.get(setting.nameId);
+    // The flat Controls page names the power rows in full (T_Controls).
+    if (setting.valuePtr == &CrossPointSettings::shortPwrBtn) row.label = tr(STR_PICCO_POWER_BUTTON);
+    if (setting.valuePtr == &CrossPointSettings::longPwrBtn) row.label = tr(STR_PICCO_POWER_LONG_PRESS);
+    row.hint = piccoHint(setting);
     if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
       row.trailing = Trailing::Switch;
       row.on = SETTINGS.*(setting.valuePtr) != 0;
+      if (setting.valuePtr == &CrossPointSettings::disableReaderTouchscreen) {
+        // T_Controls shows the positive "Touchscreen" switch; the stored value is "disable".
+        row.label = tr(STR_PICCO_TOUCHSCREEN);
+        row.on = !row.on;
+      }
       continue;
     }
     values[i] = settingValueText(setting);
     if (values[i] == ">") values[i].clear();
+    if (setting.action == SettingAction::DisplaySleepScreen && !displaySleepSettings.empty()) {
+      values[i] = settingValueText(displaySleepSettings.front());
+    }
+    if (isPiccoStepper(setting)) {
+      if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
+        char sleep[32];
+        formatSleepMinutes(SETTINGS.sleepTimeoutMinutes, sleep, sizeof(sleep));
+        values[i] = sleep;
+      }
+      row.value = values[i].c_str();
+      row.trailing = Trailing::Stepper;
+      continue;
+    }
+    if (setting.action == SettingAction::PiccoReading) {
+      // T_Settings: the reading font and its size.
+      std::string family;
+      std::string size;
+      for (const auto& font : readerFontSettings) {
+        if (font.nameId == StrId::STR_FONT_FAMILY) family = settingValueText(font);
+        if (font.nameId == StrId::STR_FONT_SIZE) size = settingValueText(font);
+      }
+      values[i] = family.empty() || size.empty() ? family + size : family + " \xC2\xB7 " + size;
+    }
     if (setting.action == SettingAction::PiccoDisplay) {
       char sleep[32];
-      if (SETTINGS.sleepTimeoutMinutes >= CrossPointSettings::SLEEP_TIMEOUT_NEVER_MINUTES) {
-        std::snprintf(sleep, sizeof(sleep), "%s", tr(STR_NEVER));
-      } else {
-        std::snprintf(sleep, sizeof(sleep), tr(STR_SLEEP_TIMER_VALUE_FORMAT),
-                      static_cast<unsigned>(SETTINGS.sleepTimeoutMinutes));
-      }
+      formatSleepMinutes(SETTINGS.sleepTimeoutMinutes, sleep, sizeof(sleep));
       values[i] = sleep;
     }
     row.value = values[i].c_str();
@@ -443,7 +813,10 @@ void SettingsActivity::renderPicco() {
   // Rows per page vary with sections; the shared row-paging helpers see a single page.
   visibleRows = std::max(1, count);
   const bool versionFooter = !piccoRoot && selectedCategoryIndex == 3 && activeSubmenu == SettingAction::None;
-  drawPiccoList(piccoTitle(), rows.data(), count, selectedSettingIndex - 1, nullptr, versionFooter);
+  const char* note = activeSubmenu == SettingAction::DisplayFrontlight && slideSwitchOwnsLight()
+                         ? tr(STR_PICCO_NOTE_SLIDE_SWITCH_LIGHT)
+                         : nullptr;
+  drawPiccoList(piccoTitle(), rows.data(), count, selectedSettingIndex - 1, note, versionFooter);
 }
 
 #endif

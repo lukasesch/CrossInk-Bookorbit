@@ -388,9 +388,6 @@ void SettingsActivity::rebuildSettingsLists() {
   systemFilesCacheSettings = buildSystemFilesCacheSettingsList(allSettings);
   systemReadingStatsSettings = buildSystemReadingStatsSettingsList(allSettings);
   systemGlobalStatsSettings = buildSystemGlobalStatsSettingsList(allSettings);
-#if CROSSINK_APP_PICCO_UI
-  rebuildPiccoLists(allSettings);
-#endif
   controlsSettings = buildControlsSettingsParentList(allSettings);
   controlsPowerSettings = buildControlsPowerSettingsList(allSettings);
   controlsHomeButtonSettings = buildControlsHomeButtonSettingsList(allSettings);
@@ -430,6 +427,10 @@ void SettingsActivity::rebuildSettingsLists() {
             static_cast<uint32_t>(controlsFrontButtonSettings.size()),
             static_cast<uint32_t>(controlsSideButtonSettings.size()));
   }
+#if CROSSINK_APP_PICCO_UI
+  // After the upstream count check: Picco re-flows the category lists into sections.
+  if (usesPiccoSettings()) rebuildPiccoLists(allSettings);
+#endif
 
   setCurrentSettingsForCategory();
 }
@@ -831,6 +832,9 @@ void SettingsActivity::openFilenameFontPicker() {
 }
 
 void SettingsActivity::openLanguagePicker() {
+#if CROSSINK_APP_PICCO_UI
+  if (openPiccoLanguagePicker()) return;
+#endif
   RenderLock lock(*this);
   optionPopup.clear();
   languageCatalog.reset();
@@ -1670,6 +1674,9 @@ void SettingsActivity::toggleCurrentSetting() {
         startActivityForResult(std::make_unique<BookOrbitSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::Plugins: {
+#if CROSSINK_APP_PICCO_UI
+        if (openPiccoPluginsPicker()) return;
+#endif
         static constexpr StrId OPTIONS[] = {StrId::STR_ENABLED, StrId::STR_DISABLED, StrId::STR_CANCEL};
         optionPopup.show(StrId::STR_PLUGINS, OPTIONS, 3, SETTINGS.pluginsEnabled ? 0 : 1, [this](const int idx) {
           if (idx == 2) return;
@@ -1846,6 +1853,9 @@ void SettingsActivity::syncQuickResumeTimeoutForSleepScreen(bool sleepScreenChan
 }
 
 void SettingsActivity::openSleepTimeoutPicker() {
+#if CROSSINK_APP_PICCO_UI
+  if (openPiccoSleepPicker()) return;
+#endif
   startActivityForResult(
       std::make_unique<IntervalSelectionActivity>(
           renderer, mappedInput, "SleepTimeoutInterval", StrId::STR_TIME_TO_SLEEP, SETTINGS.sleepTimeoutMinutes,

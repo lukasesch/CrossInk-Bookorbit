@@ -14,7 +14,7 @@
 // PiccoPagedList; this draws one page and reports its row rects for touch.
 namespace PiccoSettingsRows {
 
-enum class Trailing : uint8_t { None, Value, Chevron, ValueChevron, Switch, Check };
+enum class Trailing : uint8_t { None, Value, Chevron, ValueChevron, Switch, Check, Stepper };
 
 struct Row {
   const char* label = nullptr;
@@ -28,8 +28,12 @@ struct Row {
 
 // Section label line height (small bold font).
 int sectionTextHeight(const GfxRenderer& renderer);
-// Row height for a row: 80 with a hint, else 64.
+// Row height for a row: 80 with a hint or a stepper, else 64.
 int16_t rowHeight(const Row& row);
+// A stepper row's minus / plus buttons (touch targets).
+PiccoLayout::Stepper stepperRects(const GfxRenderer& renderer, const PiccoPagedList::Slot& slot);
+// "<label> (continued)" at the top of a page that opens mid-section.
+void drawContinued(const GfxRenderer& renderer, const char* sectionLabel, const char* continuedFormat, int y);
 
 // Draws entries [first, end) placed by slots; focus < 0 draws no frame.
 void drawPage(const GfxRenderer& renderer, const Row* rows, const PiccoPagedList::Slot* slots, int first, int end,

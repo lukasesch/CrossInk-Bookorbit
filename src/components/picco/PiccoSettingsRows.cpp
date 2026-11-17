@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <string>
 
 #include "PiccoSwitch.h"
@@ -22,13 +23,23 @@ constexpr int kSmallFont = SMALL_FONT_ID;
 constexpr int kHintGap = 2;
 constexpr int kValueChevronGap = 4;
 
-void drawSection(const GfxRenderer& renderer, const Row& row, const PiccoPagedList::Slot& slot) {
-  std::string caps = row.label != nullptr ? row.label : "";
+void drawSectionText(const GfxRenderer& renderer, const char* text, const int y) {
+  std::string caps = text != nullptr ? text : "";
   std::transform(caps.begin(), caps.end(), caps.begin(),
                  [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
   const int width = renderer.getScreenWidth() - 2 * PiccoTokens::kGutter;
   const std::string visible = renderer.truncatedText(kSmallFont, caps.c_str(), width, EpdFontFamily::BOLD);
-  renderer.drawText(kSmallFont, PiccoTokens::kGutter, slot.y, visible.c_str(), true, EpdFontFamily::BOLD);
+  renderer.drawText(kSmallFont, PiccoTokens::kGutter, y, visible.c_str(), true, EpdFontFamily::BOLD);
+}
+
+void drawSection(const GfxRenderer& renderer, const Row& row, const PiccoPagedList::Slot& slot) {
+  drawSectionText(renderer, row.label, slot.y);
+}
+
+void drawStepperButton(const GfxRenderer& renderer, const Box& box, const freeink::Icon& icon) {
+  renderer.drawRoundedRect(box.x, box.y, box.width, box.height, PiccoTokens::kHairline, PiccoTokens::kSmallRadius,
+                           true);
+  drawLucideIcon(renderer, icon, box.x + (box.width - icon.w) / 2, box.y + (box.height - icon.h) / 2);
 }
 
 // Draws the trailing control right-aligned at `right`; returns its left edge.
@@ -58,6 +69,17 @@ int drawTrailing(const GfxRenderer& renderer, const Row& row, const int right, c
     case Trailing::Value:
       if (row.value == nullptr || row.value[0] == '\0') return x;
       break;
+    case Trailing::Stepper: {
+      const auto stepper = PiccoLayout::stepperLayout(right, centerY);
+      drawStepperButton(renderer, stepper.minus, icon_picco_minus_22);
+      drawStepperButton(renderer, stepper.plus, icon_picco_plus_22);
+      const char* value = row.value != nullptr ? row.value : "";
+      const std::string text = renderer.truncatedText(kSmallFont, value, stepper.value.width, EpdFontFamily::BOLD);
+      const int w = renderer.getTextWidth(kSmallFont, text.c_str(), EpdFontFamily::BOLD);
+      renderer.drawText(kSmallFont, stepper.value.x + (stepper.value.width - w) / 2,
+                        centerY - renderer.getLineHeight(kSmallFont) / 2, text.c_str(), true, EpdFontFamily::BOLD);
+      return stepper.minus.x;
+    }
     case Trailing::None:
       return x;
   }
@@ -97,7 +119,18 @@ void drawRow(const GfxRenderer& renderer, const Row& row, const PiccoPagedList::
 int sectionTextHeight(const GfxRenderer& renderer) { return renderer.getLineHeight(kSmallFont); }
 
 int16_t rowHeight(const Row& row) {
+  if (row.trailing == Trailing::Stepper) return PiccoTokens::kRowWithControl;
   return row.hint != nullptr && row.hint[0] != '\0' ? PiccoTokens::kRowWithHint : PiccoTokens::kRowOneLine;
+}
+
+PiccoLayout::Stepper stepperRects(const GfxRenderer& renderer, const PiccoPagedList::Slot& slot) {
+  return PiccoLayout::stepperLayout(renderer.getScreenWidth() - PiccoTokens::kGutter, slot.y + slot.height / 2);
+}
+
+void drawContinued(const GfxRenderer& renderer, const char* sectionLabel, const char* continuedFormat, const int y) {
+  char text[96];
+  std::snprintf(text, sizeof(text), continuedFormat, sectionLabel != nullptr ? sectionLabel : "");
+  drawSectionText(renderer, text, y);
 }
 
 Rect rowRect(const GfxRenderer& renderer, const PiccoPagedList::Slot& slot) {

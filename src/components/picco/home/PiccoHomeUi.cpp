@@ -85,7 +85,8 @@ std::string PiccoHomeUi::coverPath(const RecentBook& book) {
 
 void PiccoHomeUi::begin(const BookOrbitHomeSource& source) {
   data = source;
-  layout = homeLayout(Box{0, 0, renderer.getScreenWidth(), renderer.getScreenHeight()});
+  layout = homeLayout(Box{0, 0, renderer.getScreenWidth(), renderer.getScreenHeight()},
+                      UITheme::getHeaderRect(renderer, PiccoTokens::kHeaderHeight).y);
   account = BOOKORBIT_STORE.hasCredentials();
   hasToday = getCurrentLocalReadingStatsDateTimeAnyClock(today);
   offline = homeSyncWentOffline();

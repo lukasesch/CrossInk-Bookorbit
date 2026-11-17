@@ -159,6 +159,27 @@ constexpr Box rowFocusFrame(const int screenWidth, const int bandTop, const int 
   return Box{g.rowInset, bandTop + PiccoTokens::kRowFrameInsetY, screenWidth - 2 * g.rowInset, g.rowHeight};
 }
 
+// ---- Row stepper (T_SettingsDisplay "Sleep after") ---------------------------------------
+
+constexpr int kStepperValueW = 84;
+
+struct Stepper {
+  Box minus;
+  Box value;
+  Box plus;
+};
+
+// Minus, value, plus, right-aligned at `right` and centred on centerY.
+constexpr Stepper stepperLayout(const int right, const int centerY) {
+  using namespace PiccoTokens;
+  const int y = centerY - kStepperButtonH / 2;
+  Stepper s{};
+  s.plus = Box{right - kStepperButtonW, y, kStepperButtonW, kStepperButtonH};
+  s.value = Box{s.plus.x - kNeighbourGap - kStepperValueW, y, kStepperValueW, kStepperButtonH};
+  s.minus = Box{s.value.x - kNeighbourGap - kStepperButtonW, y, kStepperButtonW, kStepperButtonH};
+  return s;
+}
+
 // ---- Page indicator and swipe paging -----------------------------------------------------
 
 constexpr Box pageIndicatorBand(const Box& screen) {

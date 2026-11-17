@@ -395,6 +395,15 @@ class SettingsActivity final : public Activity {
   StrId piccoDirectTitle = StrId::STR_NONE_OPT;
   bool usesPiccoSettings() const;
   void rebuildPiccoLists(const std::vector<SettingInfo>& allSettings);
+  // Category pages re-flowed into the boards' sections; every upstream row stays reachable.
+  void reflowPiccoDisplay(const std::vector<SettingInfo>& allSettings);
+  void reflowPiccoLight(const std::vector<SettingInfo>& allSettings);
+  void reflowPiccoControls(const std::vector<SettingInfo>& allSettings);
+  void reflowPiccoSystem();
+  void stepPiccoSetting(int index, int direction);
+  bool openPiccoSleepPicker();
+  bool openPiccoLanguagePicker();
+  bool openPiccoPluginsPicker();
   bool openPiccoRootRow(const SettingInfo& setting);
   void selectFirstPiccoRow();
   const char* piccoTitle() const;
