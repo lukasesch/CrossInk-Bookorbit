@@ -1130,6 +1130,13 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     pluginsEnabled = clamp(doc["pluginsEnabled"] | uint8_t{0}, 2, 0);
   }
   pluginHubPromptHidden = clamp(doc["pluginHubPromptHidden"] | uint8_t{0}, 2, 0);
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+  // The Picco UI shows no plugin entry points, so plugins stay off rather than run unseen.
+  if (uiTheme == PICCO && pluginsEnabled) {
+    pluginsEnabled = 0;
+    needsResave = true;
+  }
+#endif
 
   if (bookOrbitShortcutsCarried) LOG_INF("CPS", "Carried BookOrbit Sync shortcuts over to their new numbers");
   if ((doc["bookOrbitShortcutIds"] | static_cast<uint8_t>(0)) != BOOKORBIT_SHORTCUT_IDS_CURRENT) needsResave = true;

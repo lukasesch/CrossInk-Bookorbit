@@ -4501,11 +4501,17 @@ class SimulatorSmokeTest {
                                      ? static_cast<uint8_t>(CrossPointSettings::PICCO)
                                      : static_cast<uint8_t>(CrossPointSettings::LYRA);
     SETTINGS.uiTheme = CrossPointSettings::PICCO;
+    SETTINGS.pluginsEnabled = 1;
     if (!SETTINGS.saveToFile()) fail("Cannot save the Picco theme");
     SETTINGS.uiTheme = CrossPointSettings::LYRA;
     if (!SETTINGS.loadFromFile() || SETTINGS.uiTheme != expected)
       fail("Picco theme reload: expected %u, found %u", static_cast<unsigned>(expected),
            static_cast<unsigned>(SETTINGS.uiTheme));
+    // The Picco UI has no plugin entry points, so loading it switches plugins off.
+    const uint8_t expectedPlugins = expected == CrossPointSettings::PICCO ? 0 : 1;
+    if (SETTINGS.pluginsEnabled != expectedPlugins)
+      fail("Plugins after the Picco theme reload: expected %u, found %u", static_cast<unsigned>(expectedPlugins),
+           static_cast<unsigned>(SETTINGS.pluginsEnabled));
     SETTINGS.uiTheme = 200;
     UITheme::getInstance().reload();
     SETTINGS.fromJson(original.as<JsonVariantConst>());

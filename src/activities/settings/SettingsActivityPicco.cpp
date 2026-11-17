@@ -331,9 +331,7 @@ void SettingsActivity::reflowPiccoSystem() {
     if (isDeviceRow(s) && s.action != SettingAction::KeyboardLayouts && s.action != SettingAction::FilenameFallbackFont)
       out.push_back(s);
   }
-  for (const auto& s : upstream) {
-    if (s.action == SettingAction::Plugins) out.push_back(s);
-  }
+  // Plugins have no entry point in the Picco UI.
   for (const auto& s : systemDeviceSettings) {
     if (s.action == SettingAction::KeyboardLayouts || s.action == SettingAction::FilenameFallbackFont) out.push_back(s);
   }
