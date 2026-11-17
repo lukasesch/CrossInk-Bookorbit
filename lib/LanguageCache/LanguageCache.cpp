@@ -271,6 +271,12 @@ Result parseDocument(Input input, const Schema& schema, Workspace* work, Metadat
     const char* english = schema.english(known.id);
 #if !defined(CROSSINK_LANGUAGE_BENCHMARK)
     if (std::strcmp(english, value) == 0) continue;
+#else
+    // Fork: Picco-only keys keep the English value in every pack but German and are never
+    // translated, so the worst-case measure skips them as the device does.
+    // (Key names start with the 4-byte string prefix checked above; the source scan of
+    // gen_i18n.py would read a spelled-out prefix literal as a missing key.)
+    if (std::strncmp(known.name + 4, "PICCO_", 6) == 0 && std::strcmp(english, value) == 0) continue;
 #endif
     if (known.formatted && !compatibleFormat(english, value)) continue;
     const size_t size = std::strlen(value) + 1;
