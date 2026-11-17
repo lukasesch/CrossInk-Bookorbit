@@ -105,6 +105,12 @@ class FileBrowserActivity final : public Activity {
   static void onSettingsEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onSelectDirectoryEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildListScreen(UiApp::ScreenType& screen);
+#if CROSSINK_APP_PICCO_UI
+  // Picco Files (T_Files): breadcrumb band and the USB / Wi-Fi transfer pair; in
+  // FileBrowserActivityPicco.cpp. Value 1 = USB Drive, 2 = Wi-Fi transfer.
+  void buildPiccoChrome(UiApp::ScreenType& screen);
+  void openPiccoTransfer(int target);
+#endif
   void selectDirectory();
   void activateSelected();
   void navigateBack();

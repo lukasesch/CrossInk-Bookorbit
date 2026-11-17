@@ -21,7 +21,8 @@ struct SavedBookEntry {
 
 class SavedItemsHomeActivity final : public Activity {
  public:
-  SavedItemsHomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
+  // libraryBookCount labels the Picco Library's Books tab (-1: unknown).
+  SavedItemsHomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, int libraryBookCount = -1);
 
   void onEnter() override;
   void onExit() override;
@@ -42,9 +43,16 @@ class SavedItemsHomeActivity final : public Activity {
   std::atomic<bool> uiReady{false};
   int visibleRows = 1;
   int topIndex = 0;
+  int libraryBookCount = -1;
 
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+#if CROSSINK_APP_PICCO_UI
+  // Picco: this screen is the Library's Saved tab (T_LibrarySaved).
+  static void onBooksTabEvent(const freeink::ui::ActionEvent& event, void* user);
+  void buildPiccoTabs(UiApp::ScreenType& screen);
+  void renderPicco();
+#endif
   void buildListScreen(UiApp::ScreenType& screen);
 
   void reloadSavedBooks();

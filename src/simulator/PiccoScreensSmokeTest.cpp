@@ -1,5 +1,6 @@
 #ifdef SIMULATOR
 #include "PiccoScreensSmokeTest.h"
+#include "PiccoScreens4A.h"
 
 #include <HalDisplay.h>
 #include <I18n.h>
@@ -342,6 +343,8 @@ struct PiccoScreensSmokeTest {
       renderAndCapture("file-browser");
       return 0;
     });
+
+    addPiccoScreens4A(steps, [this](const std::string& name) { renderAndCapture(name); });
 
     steps.push_back([] {
       activityManager.goToSettings();

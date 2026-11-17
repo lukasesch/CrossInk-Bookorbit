@@ -66,6 +66,7 @@ struct LibraryActivity {
   std::vector<bool> covers;
   std::vector<int> attempted;
   bool gridEnabled() const { return true; }
+  int gridPageSize() const { return GRID_PAGE_SIZE; }
   int rowCount() const { return covers.size(); }
   bool loadGridCover(int row) {
     attempted.push_back(row);

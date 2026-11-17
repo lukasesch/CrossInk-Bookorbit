@@ -24,11 +24,22 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 
+#if CROSSINK_APP_PICCO_UI
+#include <cstdio>
+
+#include "activities/ActivityManager.h"
+#include "components/picco/PiccoListUi.h"
+#include "components/picco/PiccoPageIndicator.h"
+
+extern ActivityManager activityManager;
+#endif
+
 namespace fui = freeink::ui;
 
 namespace {
 constexpr unsigned long SAVED_ITEM_DELETE_HOLD_MS = 1000;
 constexpr fui::ActionId ACTION_ROW = 1;
+constexpr fui::ActionId ACTION_BOOKS_TAB = 2;
 
 void mergeBookmarkEntry(std::vector<SavedBookEntry>& out, const BookmarkedBookEntry& entry) {
   auto it = std::find_if(out.begin(), out.end(), [&](const SavedBookEntry& existing) {
@@ -59,8 +70,10 @@ void mergeClippingEntry(std::vector<SavedBookEntry>& out, const ClippedBookEntry
 }
 }  // namespace
 
-SavedItemsHomeActivity::SavedItemsHomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
+SavedItemsHomeActivity::SavedItemsHomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                               const int libraryBookCount)
     : Activity("SavedItemsHome", renderer, mappedInput),
+      libraryBookCount(libraryBookCount),
       uiTarget(makeUiTarget(renderer)),
       app(uiTarget, uiTarget.deviceContext()) {}
 
@@ -119,6 +132,9 @@ void SavedItemsHomeActivity::onEnter() {
   uiReady = false;
   applySharedUiTheme(app, uiTarget);
   app.on(ACTION_ROW, &SavedItemsHomeActivity::onRowEvent, this);
+#if CROSSINK_APP_PICCO_UI
+  app.on(ACTION_BOOKS_TAB, &SavedItemsHomeActivity::onBooksTabEvent, this);
+#endif
   app.setScreen(&SavedItemsHomeActivity::listScreen, this);
   requestUpdate();
 }
@@ -157,7 +173,12 @@ void SavedItemsHomeActivity::loop() {
   }
 
   const int listSize = static_cast<int>(books.size());
+#if CROSSINK_APP_PICCO_UI
+  // The Books tab stays reachable when there is nothing saved.
+  if (listSize == 0 && !UITheme::isPicco()) return;
+#else
   if (listSize == 0) return;
+#endif
 
   if (uiReady) {
     const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
@@ -167,6 +188,7 @@ void SavedItemsHomeActivity::loop() {
       if (event) return;
     }
   }
+  if (listSize == 0) return;
 
   const auto swipe = mappedInput.wasSwipe();
   if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
@@ -215,10 +237,17 @@ void SavedItemsHomeActivity::listScreen(UiApp::ScreenType& screen, void* user) {
 
 void SavedItemsHomeActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  setUiContentMargin(screen, renderer,
-                     fui::Insets{static_cast<int16_t>(CompactHeader::contentTop(renderer)), 0,
-                                 static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    buildPiccoTabs(screen);
+  } else
+#endif
+  {
+    setUiContentMargin(screen, renderer,
+                       fui::Insets{static_cast<int16_t>(CompactHeader::contentTop(renderer)), 0,
+                                   static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  }
   if (books.empty()) {
     screen.centeredText(tr(STR_NO_BOOKMARKS), screen.theme().bodyText);
     return;
@@ -250,6 +279,12 @@ void SavedItemsHomeActivity::buildListScreen(UiApp::ScreenType& screen) {
 }
 
 void SavedItemsHomeActivity::render(RenderLock&&) {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    renderPicco();
+    return;
+  }
+#endif
   renderer.clearScreen();
 
   if (mappedInput.hasTouchHardware()) {
@@ -429,3 +464,52 @@ void SavedItemsHomeActivity::openClippingList(const SavedBookEntry& entry) {
                            }
                          });
 }
+
+#if CROSSINK_APP_PICCO_UI
+void SavedItemsHomeActivity::onBooksTabEvent(const fui::ActionEvent&, void* user) {
+  auto* self = static_cast<SavedItemsHomeActivity*>(user);
+  self->app.clearTapFlash();
+  activityManager.goToLibrary();
+}
+
+void SavedItemsHomeActivity::buildPiccoTabs(UiApp::ScreenType& screen) {
+  const PiccoLayout::Box screenBox{0, 0, renderer.getScreenWidth(), renderer.getScreenHeight()};
+  const auto tabs = PiccoLibraryLayout::bandBelow(screenBox, UITheme::getInstance().getMetrics().headerHeight,
+                                                  PiccoTokens::kTabBarHeight);
+  char booksLabel[32];
+  if (libraryBookCount >= 0) {
+    std::snprintf(booksLabel, sizeof(booksLabel), tr(STR_PICCO_BOOKS_TAB_FORMAT),
+                  static_cast<unsigned>(libraryBookCount));
+  } else {
+    std::snprintf(booksLabel, sizeof(booksLabel), "%s", tr(STR_PICCO_BOOKS_TAB));
+  }
+  unsigned saved = 0;
+  for (const auto& entry : books) saved += entry.bookmarkCount + entry.clippingCount;
+  char savedLabel[32];
+  std::snprintf(savedLabel, sizeof(savedLabel), tr(STR_PICCO_SAVED_TAB_FORMAT), saved);
+  const char* labels[] = {booksLabel, savedLabel};
+  PiccoListUi::drawSegmented(renderer, PiccoListUi::toRect(tabs), labels, 2, 1);
+  const auto booksCell = PiccoLibraryLayout::segmentCell(tabs, 2, 0);
+  screen.frame().hit(fui::Rect{static_cast<int16_t>(booksCell.x), static_cast<int16_t>(booksCell.y),
+                               static_cast<int16_t>(booksCell.width), static_cast<int16_t>(booksCell.height)},
+                     ACTION_BOOKS_TAB, 0, fui::InputTouch);
+  const int top = tabs.bottom() + PiccoLibraryLayout::kBandGap;
+  screen.setContentMarginFromScreen(
+      fui::Insets{static_cast<int16_t>(top), 0,
+                  static_cast<int16_t>(renderer.getScreenHeight() - PiccoLayout::listBottomLimit(screenBox)), 0});
+}
+
+void SavedItemsHomeActivity::renderPicco() {
+  renderer.clearScreen();
+  HeaderChrome chrome;
+  chrome.leading = HeaderLeading::Back;
+  chrome.title = tr(STR_LIBRARY);
+  GUI.drawHeaderChrome(renderer, Rect{0, 0, renderer.getScreenWidth(), UITheme::getInstance().getMetrics().headerHeight},
+                       chrome);
+  uiReady = false;
+  renderUiApp(app, uiTarget);
+  uiReady = true;
+  PiccoPageIndicator::drawForList(renderer, topIndex, visibleRows, static_cast<int>(books.size()));
+  renderer.displayBuffer();
+}
+#endif

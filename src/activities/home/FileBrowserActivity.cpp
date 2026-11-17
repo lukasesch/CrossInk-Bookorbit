@@ -1096,9 +1096,18 @@ void FileBrowserActivity::onSettingsEvent(const fui::ActionEvent&, void* user) {
   self->openSettings();
 }
 
-void FileBrowserActivity::onSelectDirectoryEvent(const fui::ActionEvent&, void* user) {
+void FileBrowserActivity::onSelectDirectoryEvent(const fui::ActionEvent& event, void* user) {
   auto* self = static_cast<FileBrowserActivity*>(user);
   self->app.clearTapFlash();
+#if CROSSINK_APP_PICCO_UI
+  // The Picco transfer pair shares this handler (the app holds four).
+  if (self->mode == Mode::Books) {
+    self->openPiccoTransfer(event.value);
+    return;
+  }
+#else
+  (void)event;
+#endif
   self->selectDirectory();
 }
 
@@ -1458,6 +1467,10 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   setUiContentMargin(screen, renderer,
                      fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput)), 0,
                                  static_cast<int16_t>(bottomReserve), 0});
+#if CROSSINK_APP_PICCO_UI
+  const bool piccoFiles = UITheme::isPicco() && mode == Mode::Books;
+  if (piccoFiles) buildPiccoChrome(screen);
+#endif
 
 #if CROSSINK_APP_PICCO_UI
   if (mode == Mode::Books && mappedInput.hasTouchHardware() && UITheme::isPicco()) {
@@ -1491,7 +1504,10 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
     screen.target().bitmap(fui::Rect{iconX, iconY, icon.width, icon.height}, icon, fui::BitmapMode::Center,
                            fui::Paint::solid(fui::Color::Black));
   }
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+#if CROSSINK_APP_PICCO_UI
+  if (!piccoFiles)
+#endif
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   if (mode == Mode::PickDirectory && mappedInput.hasTouchHardware()) {
     const auto& theme = screen.theme();
@@ -1512,7 +1528,10 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   }
 
   // Full path band above any touch actions: separator on top, left-truncated so the
-  // deepest directory stays visible.
+  // deepest directory stays visible. Picco shows the path as a breadcrumb instead.
+#if CROSSINK_APP_PICCO_UI
+  if (!piccoFiles)
+#endif
   {
     const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
     const fui::Rect band = screen.takeBottom(static_cast<int16_t>(pathLineHeight + metrics.verticalSpacing));
@@ -1655,6 +1674,9 @@ void FileBrowserActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   std::string folderName =
+#if CROSSINK_APP_PICCO_UI
+      UITheme::isPicco() && mode == Mode::Books ? std::string(tr(STR_PICCO_FILES)) :
+#endif
       mode == Mode::PickFirmware
           ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
           : (mode == Mode::PickDirectory

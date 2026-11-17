@@ -124,6 +124,9 @@ void LibraryActivity::onEnter() {
     app.on(ACTION_DELETE, &LibraryActivity::onDeleteEvent, this);
     app.on(ACTION_CONTROL, &LibraryActivity::onControlEvent, this);
     app.setScreen(&LibraryActivity::listScreen, this);
+#if CROSSINK_APP_PICCO_UI
+    if (UITheme::isPicco()) enterPicco();
+#endif
     // The index survives a firmware reflash, but its first boot reconciliation
     // can still take time. Show feedback whenever that scan is due.
     scanCancelledThisVisit = false;
@@ -151,7 +154,7 @@ void LibraryActivity::onEnter() {
       // Touch lists hide selection, so reset()'s first-build follow would
       // otherwise discard the restored scroll position.
       listNav.followOnBuild = false;
-      gridPageStart = ((selection - CONTROL_COUNT) / GRID_PAGE_SIZE) * GRID_PAGE_SIZE;
+      gridPageStart = ((selection - CONTROL_COUNT) / gridPageSize()) * gridPageSize();
       loadGridProgress();
     }
     ignoreConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
@@ -382,7 +385,18 @@ int LibraryActivity::rowCount() const {
 }
 
 bool LibraryActivity::gridEnabled() const {
+#if CROSSINK_APP_PICCO_UI
+  // Picco's view toggle applies to every sort.
+  if (UITheme::isPicco()) return SETTINGS.recentBooksView == CrossPointSettings::RECENT_BOOKS_GRID;
+#endif
   return sort == Sort::RecentlyRead && SETTINGS.recentBooksView == CrossPointSettings::RECENT_BOOKS_GRID;
+}
+
+int LibraryActivity::gridPageSize() const {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) return piccoGridPageSize();
+#endif
+  return GRID_PAGE_SIZE;
 }
 
 void LibraryActivity::loadGridProgress() {
@@ -592,7 +606,7 @@ void LibraryActivity::reloadAfterBookAction() {
   listNav.top = topIndex;
   listNav.follow(rowCount());
   topIndex = listNav.top;
-  gridPageStart = ((selection - CONTROL_COUNT) / GRID_PAGE_SIZE) * GRID_PAGE_SIZE;
+  gridPageStart = ((selection - CONTROL_COUNT) / gridPageSize()) * gridPageSize();
   loadedGridPageStart = -1;
   nextGridCoverRow = -1;
   gridProgressRow = -1;
@@ -711,6 +725,9 @@ void LibraryActivity::openSettings() {
 
 void LibraryActivity::activateControl(const int control) {
   app.clearTapFlash();
+#if CROSSINK_APP_PICCO_UI
+  if (activatePiccoControl(control)) return;
+#endif
   if (control == 0) refreshLibrary();
   if (control == 1) openSearch();
   if (control == 2) openSettings();
@@ -891,11 +908,17 @@ void LibraryActivity::loop() {
     return;
   }
   // Prepare at most one cover between input checks, then repaint the completed page.
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) loadPiccoGridPercents();
+#endif
   loadGridPageCovers();
 }
 
 void LibraryActivity::handleInput(const LibraryInputBuffer::Event& input) {
   using Type = LibraryInputBuffer::Type;
+#if CROSSINK_APP_PICCO_UI
+  if (sortScreenOpen && handlePiccoSortInput(input)) return;
+#endif
   if (input.type == Type::TouchRelease && input.x >= 0 && input.y >= 0) {
     const auto header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
     const auto back = TouchHeaderBackButton::layout(header).touchRect;
@@ -970,9 +993,10 @@ void LibraryActivity::handleInput(const LibraryInputBuffer::Event& input) {
        (swipe == MappedInputManager::SwipeDir::Left || swipe == MappedInputManager::SwipeDir::Right))) {
     if (mappedInput.hasTouchHardware()) showSelection = false;
     if (gridEnabled()) {
-      const int lastPage = rowCount() > 0 ? ((rowCount() - 1) / GRID_PAGE_SIZE) * GRID_PAGE_SIZE : 0;
+      const int pageSize = gridPageSize();
+      const int lastPage = rowCount() > 0 ? ((rowCount() - 1) / pageSize) * pageSize : 0;
       const bool nextPage = swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Left;
-      gridPageStart = std::clamp(gridPageStart + (nextPage ? GRID_PAGE_SIZE : -GRID_PAGE_SIZE), 0, lastPage);
+      gridPageStart = std::clamp(gridPageStart + (nextPage ? pageSize : -pageSize), 0, lastPage);
       if (rowCount() > 0) selection = CONTROL_COUNT + gridPageStart;
       loadedGridPageStart = -1;
       nextGridCoverRow = -1;
@@ -1011,7 +1035,7 @@ void LibraryActivity::handleInput(const LibraryInputBuffer::Event& input) {
     selection = next;
     if (gridEnabled()) {
       if (selection >= CONTROL_COUNT) {
-        const int nextPage = ((selection - CONTROL_COUNT) / GRID_PAGE_SIZE) * GRID_PAGE_SIZE;
+        const int nextPage = ((selection - CONTROL_COUNT) / gridPageSize()) * gridPageSize();
         if (nextPage != gridPageStart) {
           loadedGridPageStart = -1;
           nextGridCoverRow = -1;
@@ -1030,7 +1054,7 @@ void LibraryActivity::handleInput(const LibraryInputBuffer::Event& input) {
   if (mappedInput.hasTouchHardware()) {
     if (input.type == Type::Next) move(ButtonNavigator::nextIndex(selection, count));
     if (input.type == Type::Previous) move(ButtonNavigator::previousIndex(selection, count));
-    const int page = gridEnabled() ? GRID_PAGE_SIZE : listNav.pageRowsFor(rowCount());
+    const int page = gridEnabled() ? gridPageSize() : listNav.pageRowsFor(rowCount());
     if (input.type == Type::NextPage) move(ButtonNavigator::nextPageIndex(selection, count, page));
     if (input.type == Type::PreviousPage) move(ButtonNavigator::previousPageIndex(selection, count, page));
   } else if (rowCount() > 0) {
@@ -1039,7 +1063,7 @@ void LibraryActivity::handleInput(const LibraryInputBuffer::Event& input) {
     const auto moveBook = [&](const int next) { move(CONTROL_COUNT + next); };
     if (input.type == Type::Next) moveBook(ButtonNavigator::nextIndex(row, bookCount));
     if (input.type == Type::Previous) moveBook(ButtonNavigator::previousIndex(row, bookCount));
-    const int page = gridEnabled() ? GRID_PAGE_SIZE : listNav.pageRowsFor(bookCount);
+    const int page = gridEnabled() ? gridPageSize() : listNav.pageRowsFor(bookCount);
     if (input.type == Type::NextPage) moveBook(ButtonNavigator::nextPageIndex(row, bookCount, page));
     if (input.type == Type::PreviousPage) moveBook(ButtonNavigator::previousPageIndex(row, bookCount, page));
   }
@@ -1249,6 +1273,12 @@ void LibraryActivity::buildSortHeader(UiApp::ScreenType& screen) {
 }
 
 void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    buildPiccoScreen(screen);
+    return;
+  }
+#endif
   const auto& metrics = UITheme::getInstance().getMetrics();
   int bounds[4]{};
   renderer.getOrientedViewableTRBL(&bounds[0], &bounds[1], &bounds[2], &bounds[3]);
@@ -1325,6 +1355,10 @@ void LibraryActivity::buildListScreen(UiApp::ScreenType& screen) {
     buildGrid(screen);
     return;
   }
+  buildBookList(screen);
+}
+
+void LibraryActivity::buildBookList(UiApp::ScreenType& screen) {
   fui::ListProps props;
   props.rowProvider = &LibraryActivity::provideRow;
   props.rowProviderCtx = this;
@@ -1467,7 +1501,7 @@ void LibraryActivity::buildGrid(UiApp::ScreenType& screen) {
 
 void LibraryActivity::loadGridPageCovers() {
   if (!gridEnabled() || gridCoverWidth <= 0 || gridCoverHeight <= 0 || gridPageStart == loadedGridPageStart) return;
-  const int pageEnd = std::min(gridPageStart + GRID_PAGE_SIZE, rowCount());
+  const int pageEnd = std::min(gridPageStart + gridPageSize(), rowCount());
   if (nextGridCoverRow < 0) {
     nextGridCoverRow = gridPageStart;
     gridCoverAdded = false;
@@ -1523,6 +1557,12 @@ void LibraryActivity::render(RenderLock&&) {
     drawScanScreen(tr(STR_LIBRARY_SCANNING));
     return;
   }
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    renderPicco();
+    return;
+  }
+#endif
   for (int pass = 0; pass < 8; ++pass) {
     renderer.clearScreen();
     const auto header = TouchHeaderBackButton::headerRect(renderer, mappedInput);

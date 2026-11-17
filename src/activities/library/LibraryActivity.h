@@ -178,4 +178,32 @@ class LibraryActivity final : public Activity {
   void promptDeleteBook(const RecentBook& book);
   void promptRemoveBook(const std::string& path, const std::string& title);
   void showBookActionMenu(size_t bookIndex, bool ignoreInitialConfirmRelease = false);
+  void buildBookList(UiApp::ScreenType& screen);
+  int gridPageSize() const;
+
+#if CROSSINK_APP_PICCO_UI
+  // Picco look (T_Library, T_LibrarySort), in LibraryActivityPicco.cpp. Controls keep their
+  // indices: 0 view toggle, 1 search, 2 Saved tab, 3 sort, 4 order.
+  static constexpr int PICCO_GRID_MAX = 9;
+  bool sortScreenOpen = false;
+  int sortFocus = -1;
+  int libraryBookCount = -1;
+  uint16_t savedCount = 0;
+  int gridPercentPage = -1;
+  float gridPagePercent[PICCO_GRID_MAX]{};
+  void enterPicco();
+  void buildPiccoScreen(UiApp::ScreenType& screen);
+  void buildPiccoSortScreen(UiApp::ScreenType& screen);
+  void buildPiccoGrid(const freeink::ui::Rect& area, UiApp::ScreenType& screen);
+  void renderPicco();
+  void loadPiccoGridPercents();
+  void openSavedTab();
+  void selectSortOption(int option);
+  void selectOrder(int cell);
+  bool handlePiccoSortInput(const LibraryInputBuffer::Event& input);
+  bool activatePiccoControl(int control);
+  int piccoGridPageSize() const;
+  const char* orderLabel(bool forDescending) const;
+  static void onPiccoSortEvent(const freeink::ui::ActionEvent& event, void* user);
+#endif
 };
