@@ -20,7 +20,6 @@ constexpr int kHeroGap = 20;
 constexpr int kSectionLabelLine = 20;
 constexpr int kTitleTopGap = 2;
 constexpr int kTitleLine = 36;
-constexpr int kTitleMaxLines = 2;
 constexpr int kAuthorLine = 24;
 constexpr int kMetaLine = 20;
 constexpr int kMetaGap = 6;   // meta row -> progress
@@ -68,7 +67,7 @@ struct Hero {
   Box cover;
   Box text;   // the column right of the cover
   Box label;  // "CONTINUE READING"
-  Box title;  // first title line; further lines step kTitleLine
+  Box title;  // one line; the author line follows
   Box meta;   // chapter left, percent right
   Box progress;
   Box pill;
@@ -132,23 +131,8 @@ constexpr Hero heroLayout(const Box& screen) {
   return h;
 }
 
-// Title lines that fit above the meta row. One line keeps the board's 36 px line and the
-// author under it; a second line drops the author and tightens to 32 px (line-height 1)
-// so both lines still clear the meta row.
-constexpr int kTitleLineTight = 32;
-
-constexpr int titleStep(const int lines) { return lines > 1 ? kTitleLineTight : kTitleLine; }
-
-constexpr int titleLinesAvailable(const Hero& h, const bool withAuthor) {
-  const int room = h.meta.y - h.title.y;
-  if (withAuthor) return 1;
-  return kTitleMaxLines * kTitleLineTight <= room ? kTitleMaxLines : 1;
-}
-
-constexpr Box titleLine(const Hero& h, const int line, const int lines) {
-  const int step = titleStep(lines);
-  return Box{h.title.x, h.title.y + line * step, h.title.width, step};
-}
+// The title is one line (ellipsis when longer) with the author under it, as on the board.
+constexpr Box titleLine(const Hero& h) { return Box{h.title.x, h.title.y, h.title.width, kTitleLine}; }
 
 constexpr Box authorLine(const Hero& h) { return Box{h.title.x, h.title.y + kTitleLine, h.title.width, kAuthorLine}; }
 

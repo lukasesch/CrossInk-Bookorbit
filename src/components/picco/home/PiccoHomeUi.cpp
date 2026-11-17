@@ -280,13 +280,8 @@ void PiccoHomeUi::drawHero() const {
 
   const char* title = book != nullptr ? displayTitle(*book) : tr(STR_NO_OPEN_BOOK);
   const bool hasAuthor = book != nullptr && !book->author.empty();
-  // A title that needs two lines takes the author's line (titleLinesAvailable()).
-  auto lines = renderer.wrappedText(LITERATA_15_FONT_ID, title, hero.title.width, titleLinesAvailable(hero, false));
-  const int titleLines = static_cast<int>(lines.size());
-  for (int i = 0; i < titleLines; ++i) {
-    drawIn(renderer, LITERATA_15_FONT_ID, titleLine(hero, i, titleLines), lines[static_cast<size_t>(i)].c_str());
-  }
-  if (hasAuthor && titleLines == 1) drawIn(renderer, UI_10_FONT_ID, authorLine(hero), book->author.c_str());
+  drawIn(renderer, LITERATA_15_FONT_ID, titleLine(hero), title);
+  if (hasAuthor) drawIn(renderer, UI_10_FONT_ID, authorLine(hero), book->author.c_str());
 
   if (book != nullptr) {
     char percent[8] = {};

@@ -49,13 +49,11 @@ TEST(PiccoHome, HeroMatchesTheBoard) {
   expectBox(h.meta, 172, 183, 284, 20);
 }
 
-TEST(PiccoHome, TitleLinesClearTheMetaRow) {
+TEST(PiccoHome, TitleAndAuthorClearTheMetaRow) {
   const Hero& h = kHome.hero;
-  EXPECT_EQ(titleLinesAvailable(h, true), 1);
-  EXPECT_EQ(titleLinesAvailable(h, false), 2);
+  EXPECT_EQ(titleLine(h).height, 36);
+  EXPECT_EQ(authorLine(h).y, titleLine(h).bottom());
   EXPECT_LE(authorLine(h).bottom(), h.meta.y);
-  EXPECT_LE(titleLine(h, 1, 2).bottom(), h.meta.y);
-  EXPECT_EQ(titleLine(h, 0, 1).height, 36);
 }
 
 TEST(PiccoHome, StatsCardMatchesTheBoard) {
