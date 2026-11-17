@@ -12,6 +12,7 @@
 #include <cstring>
 #include <iterator>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -84,7 +85,7 @@ inline bool settingKeyIs(const SettingInfo& setting, const char* key) {
 
 inline bool isTiltPageTurnSetting(const SettingInfo& setting) {
   return settingKeyIs(setting, "tiltPageTurn") || settingKeyIs(setting, "tiltPageTurnDirection") ||
-         settingKeyIs(setting, "tiltNextPageOnly");
+         settingKeyIs(setting, "tiltNextPageOnly") || settingKeyIs(setting, "tiltSensitivity");
 }
 
 inline bool isPageGestureSettingDisabled(const SettingInfo& setting) {
@@ -580,7 +581,10 @@ inline void appendShortcutOptions(SettingInfo& setting, const ShortcutOptionCata
     if (catalog == ShortcutOptionCatalog::HomeButton &&
         (action == CrossPointSettings::HOME_READER || action == CrossPointSettings::BACK_HOME))
       continue;
-    if (!QuickActions::isActionAvailable(static_cast<uint8_t>(action))) continue;
+    // Persist a saved stats shortcut even while tracking is disabled. The UI
+    // removes it in getSettingsList(); availability must not invalidate storage.
+    if (action != CrossPointSettings::READING_STATS && !QuickActions::isActionAvailable(static_cast<uint8_t>(action)))
+      continue;
     const uint8_t rawValue = shortcutRawValue(catalog, action);
     if (rawValue == SHORTCUT_OPTION_UNAVAILABLE) continue;
     setting.enumValues.push_back(QuickActions::actionLabel(static_cast<uint8_t>(action)));
@@ -628,27 +632,27 @@ inline SettingInfo buildSideButtonActionSetting(const StrId nameId, uint8_t Cros
 // Each entry has a key (for JSON API) and category (for grouping).
 // ACTION-type entries and entries without a key are device-only.
 //
-// The static list is constructed exactly once (master's optimization, #1086 +
-// #1636) so the per-entry SettingInfo cost is paid once. Read-only consumers
-// can use it directly; mutable device UI lists use getSettingsList(), which
-// returns an owned copy and can add SD-card font and dictionary options.
-// Upstream's 110 common entries, plus Publisher Fonts on scalable-font builds and four
-// edge gestures on touch devices; getBaseSettingsCapacity() adds the three persisted IMU
-// entries. This fork adds BASE_SETTINGS_FORK_ENTRIES on top (BookOrbit, the clock latch
-// toggle), minus the KOReader account entries its build switch compiles out.
+// UI consumers own their descriptors; persistence visits and releases each entry.
+// The count is this fork's: upstream's 110 common entries less its five two-finger and
+// eight Sync Server account entries, plus the seven BookOrbit ones, the clock latch
+// toggle and the release-candidate update toggle. Publisher Fonts is compiled only on
+// scalable-font builds; nine gesture entries (two-finger and edge) only for touch
+// devices; the eight Sync Server account entries only with its build switch.
+// getBaseSettingsCapacity() adds the four persisted IMU entries and the slide switch.
 #if CROSSINK_APP_CAP_KOREADER_SYNC
-inline constexpr size_t BASE_SETTINGS_KOREADER_ENTRIES = 0;
-#else
 inline constexpr size_t BASE_SETTINGS_KOREADER_ENTRIES = 8;
-#endif
-inline constexpr size_t BASE_SETTINGS_FORK_ENTRIES = 8;
-#if CROSSINK_SCALABLE_FONTS
-inline constexpr size_t BASE_SETTINGS_CAPACITY =
-    111 + (CROSSINK_APP_CAP_TOUCH ? 4 : 0) + BASE_SETTINGS_FORK_ENTRIES - BASE_SETTINGS_KOREADER_ENTRIES;
 #else
-inline constexpr size_t BASE_SETTINGS_CAPACITY =
-    110 + (CROSSINK_APP_CAP_TOUCH ? 4 : 0) + BASE_SETTINGS_FORK_ENTRIES - BASE_SETTINGS_KOREADER_ENTRIES;
+inline constexpr size_t BASE_SETTINGS_KOREADER_ENTRIES = 0;
 #endif
+#if CROSSINK_SCALABLE_FONTS
+inline constexpr size_t BASE_SETTINGS_SCALABLE_FONT_ENTRIES = 1;
+#else
+inline constexpr size_t BASE_SETTINGS_SCALABLE_FONT_ENTRIES = 0;
+#endif
+// Include Release Candidates is compiled only where the firmware can update itself.
+inline constexpr size_t BASE_SETTINGS_CAPACITY = 106 + BASE_SETTINGS_SCALABLE_FONT_ENTRIES +
+                                                 (CROSSINK_APP_CAP_TOUCH ? 9 : 0) + BASE_SETTINGS_KOREADER_ENTRIES -
+                                                 (CROSSINK_APP_CAP_SELF_UPDATE ? 0 : 1);
 
 #if FREEINK_DEVICE_PICCO
 inline constexpr size_t SLIDE_SWITCH_SETTINGS_COUNT = 1;
@@ -657,10 +661,26 @@ inline constexpr size_t SLIDE_SWITCH_SETTINGS_COUNT = 0;
 #endif
 
 inline size_t getBaseSettingsCapacity() {
-  return BASE_SETTINGS_CAPACITY + (QuickActions::supportsTiltPageTurn() ? 3 : 0) + SLIDE_SWITCH_SETTINGS_COUNT;
+  // The four tilt entries are inserted on every board, sensor or not, so saved tilt
+  // preferences survive a failed probe; counting them only with a sensor made the list
+  // outgrow its reserve and double its capacity for the life of the process.
+  return BASE_SETTINGS_CAPACITY + 4 + SLIDE_SWITCH_SETTINGS_COUNT;
 }
 
-const std::vector<SettingInfo>& getBaseSettingsList();
+using SettingVisitor = void (*)(SettingInfo&&, void*);
+// Inspect or move each descriptor during the callback; borrowed references expire on return.
+void forEachBaseSetting(SettingVisitor visitor, void* context);
+
+template <typename Visitor>
+void forEachBaseSetting(Visitor&& visitor) {
+  forEachBaseSetting(
+      [](SettingInfo&& setting, void* context) {
+        (*static_cast<std::remove_reference_t<Visitor>*>(context))(std::move(setting));
+      },
+      &visitor);
+}
+
+std::vector<SettingInfo> getBaseSettingsList();
 
 inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry = nullptr,
                                                 const DictionaryRegistry* dictRegistry = nullptr) {
@@ -945,6 +965,7 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   const bool hasTiltPageTurnSetting = listsTiltPageTurnToggle(allSettings);
   const bool hasTiltPageTurnDirectionSetting = hasSettingByName(allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION);
   const bool hasTiltNextPageOnlySetting = hasSettingByName(allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY);
+  const bool hasTiltSensitivitySetting = hasSettingByName(allSettings, StrId::STR_TILT_SENSITIVITY);
   const bool hasTapsGestures = hasSettingByName(allSettings, StrId::STR_NEXT_PAGE);
   const bool hasFrontButtons = deviceHasFrontButtons();
   const bool hasHomeKey = gpio.hasHomeKey();
@@ -953,7 +974,8 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   std::vector<SettingInfo> settings;
   settings.reserve(3 + (hasSlideSwitch ? 1u : 0u) + (hasHomeKey ? 1u : 0u) + (hasFrontButtons ? 2u : 0u) +
                    (hasTiltPageTurnSetting ? 1u : 0u) + (hasTiltPageTurnDirectionSetting ? 1u : 0u) +
-                   (hasTiltNextPageOnlySetting ? 1u : 0u) + (hasTapsGestures ? 1u : 0u));
+                   (hasTiltNextPageOnlySetting ? 1u : 0u) + (hasTiltSensitivitySetting ? 1u : 0u) +
+                   (hasTapsGestures ? 1u : 0u));
   if (hasHomeKey) {
     settings.push_back(SettingInfo::Submenu(StrId::STR_HOME_BUTTON, SettingAction::ControlsHomeButton));
   }
@@ -968,6 +990,7 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
   }
   if (hasTiltPageTurnSetting) addSettingByName(settings, allSettings, StrId::STR_TILT_PAGE_TURN);
   if (hasTiltPageTurnDirectionSetting) addSettingByName(settings, allSettings, StrId::STR_TILT_PAGE_TURN_DIRECTION);
+  if (hasTiltSensitivitySetting) addSettingByName(settings, allSettings, StrId::STR_TILT_SENSITIVITY);
   if (hasTiltNextPageOnlySetting) addSettingByName(settings, allSettings, StrId::STR_TILT_NEXT_PAGE_ONLY);
   if (hasFrontButtons) addSettingByKey(settings, allSettings, "menuNavigation");
   if (hasSlideSwitch) addSettingByKey(settings, allSettings, "slideSwitchAction");
@@ -1153,7 +1176,8 @@ inline std::vector<SettingInfo> buildDisplaySleepSettingsList(const std::vector<
 
 inline std::vector<SettingInfo> buildSystemSettingsParentList(const std::vector<SettingInfo>& allSettings) {
   std::vector<SettingInfo> systemSettings;
-  systemSettings.reserve(13);
+  // Upstream's twelve, plus BookOrbit Sync and Include Release Candidates.
+  systemSettings.reserve(14);
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_DEVICE, SettingAction::SystemDevice));
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_SYSTEM_FILES_CACHE, SettingAction::SystemFilesCache));
   systemSettings.push_back(SettingInfo::Submenu(StrId::STR_READING_STATS, SettingAction::SystemReadingStats));
@@ -1163,11 +1187,14 @@ inline std::vector<SettingInfo> buildSystemSettingsParentList(const std::vector<
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SYNC_SERVER, SettingAction::KOReaderSync));
 #endif
   systemSettings.push_back(SettingInfo::Action(StrId::STR_BOOKORBIT_SYNC, SettingAction::BookOrbitSync));
+#if CROSSINK_APP_CAP_OPDS
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
+#endif
   systemSettings.push_back(SettingInfo::Action(StrId::STR_PLUGINS, SettingAction::Plugins));
 #if CROSSINK_APP_CAP_SELF_UPDATE
   // Picco retains the vendor recovery slot and has no spare application slot.
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
+  addSettingByName(systemSettings, allSettings, StrId::STR_OTA_INCLUDE_PRERELEASES);
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
 #endif
   systemSettings.push_back(SettingInfo::Action(StrId::STR_RELEASE_NOTES, SettingAction::ReleaseNotes));

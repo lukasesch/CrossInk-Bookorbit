@@ -7,10 +7,11 @@ nav_order: 2
 
 ## Supported Devices
 
-- Xteink X3 and X4
-- Xteink X4 Classic and X4 Pro
+- Xteink X3, X4
+- Xteink X4 Pro
+- Xteink X4 Classic
 - Seeed Studio Sticky
-- BOOX Picco: supported by CrossInk v2.0.0 (see [BOOX Picco](./picco.md)); this fork publishes no release file for it, see [BOOX Picco](#boox-picco) below.
+- BOOX Picco (USB installation only, see [BOOX Picco](#boox-picco))
 
 ## Firmware Files
 
@@ -19,13 +20,8 @@ Every path below starts from a `firmware-*.bin` downloaded from **this fork's**
 device model. CrossInk's own web installer and update feeds only carry upstream builds,
 which have no BookOrbit support. Once this fork is installed,
 `Settings > System > Check for Updates` follows this fork's releases, so later versions
-arrive over the air.
-
-## Languages and hyphenation
-
-You can add menu languages and hyphenation packs without erasing your reader.
-Some devices keep installed packs on the SD card, so keep that card in the
-reader. See [Languages](./languages.md) for setup and recovery.
+arrive over the air. Turn on `Settings > System > Include Release Candidates` to be
+offered the test builds published ahead of each release as well.
 
 ## Web Installation via USB
 
@@ -37,15 +33,72 @@ reader. See [Languages](./languages.md) for setup and recovery.
 3. Give it the downloaded `firmware-*.bin` and start the flash, keeping the reader
    connected through the download-mode and flashing steps.
 
+## BOOX Picco
+
+#### For new installs and every update.
+
+Picco keeps its factory recovery software next to a single application slot, so it
+has no Wi-Fi or SD card firmware update: each version is installed over USB, and
+only into that slot.
+
+1. Download `firmware-picco-v<version>.bin` from the releases page.
+2. Connect Picco over USB. From the stock firmware, hold Power and Volume Up (+)
+   together for more than 10 seconds to enter serial flash mode; a Picco already
+   running CrossInk usually does not need this.
+3. Open the [CrossPoint flash tools](https://crosspointreader.com/#flash-tools),
+   select **BOOX Picco**, choose the custom-firmware option and give it the
+   downloaded file. For Picco it reads the partition table and writes the
+   application slot only, leaving the bootloader, partition table and recovery
+   software untouched.
+4. Press and hold the power button to restart Picco.
+
+Never erase the flash, write at address `0x0`, or use a firmware made for another
+model: either would remove the recovery software.
+
+#### With esptool instead
+
+From a computer (macOS or Linux; see [Command Line](#command-line) to install
+`esptool` and find the port), after steps 1 and 2:
+
+1. Check that the reader has the stock layout before writing anything:
+
+   ```sh
+   esptool.py --chip esp32s3 --port /dev/cu.usbmodem2101 read_flash 0x8000 0xc00 picco-partitions.bin
+   python3 -c "import struct; d = open('picco-partitions.bin', 'rb').read(); [print(e[12:28].rstrip(b'\0').decode(), hex(struct.unpack('<I', e[4:8])[0])) for e in (d[i:i + 32] for i in range(0, len(d), 32)) if e[:2] == b'\xaa\x50']"
+   ```
+
+   The list must include `safeboot 0x20000` and `app 0xe0000`. If it does not, stop:
+   the address below would overwrite something else.
+2. Write the firmware into the `app` slot only, leaving the bootloader, settings and
+   `safeboot` recovery untouched:
+
+   ```sh
+   esptool.py --chip esp32s3 --port /dev/cu.usbmodem2101 --baud 921600 write_flash 0xe0000 /path/to/firmware-picco-v<version>.bin
+   ```
+
+3. Press and hold the power button to restart Picco.
+
+#### Building from source and device rules
+
+This build runs on a retail unit: display, touch, buttons, frontlight, and sleep and wake work.
+It is still experimental and comes with no promise that it works. Flashing it may void your warranty, and you do so at your own risk.
+
+Build it with `pio run -e picco`, which writes `.pio/build/picco/firmware-picco.bin`. Besides the
+tools above, the Boox flasher's OTA mode also installs it into the `app` slot.
+
+- Never use the ESP32-C3 esptool command under [Command Line](#command-line), or any write at
+  `0x10000`. On the Picco that address is inside the `safeboot` partition.
+- The `erase`, `erase_upload`, `uploadfs` and `uploadfsota` PlatformIO targets are blocked for
+  this build because they would destroy the stock layout. Do not work around that.
+- There is no OTA or SD card update. The stock table has one app slot, so the firmware could only
+  overwrite itself. `Check for Updates` and `SD Card Firmware Update` are hidden.
+
 ## USB Drive
 
-On the X4 Classic and X4 Pro, you can plug the reader into your computer and use its SD card like a USB stick. This is handy for copying books and fonts.
-
-1. On the reader, go to **Home > File Transfer > USB Drive**.
-2. Connect the reader to your computer with a USB-C cable.
-3. When you are done, eject the drive on your computer first, then unplug the cable.
-
-The reader returns to the Home screen once the drive is ejected or the cable is removed.
+On X4 Pro, choose `Home > File Transfer > USB Drive` to expose the SD card to
+your computer. Eject the drive from the computer before disconnecting it; the
+reader restarts to Home when the drive is safely ejected or the cable is
+removed.
 
 ## SD Card Firmware Update
 
@@ -66,32 +119,11 @@ Highlights and bookmarks stay stored too, but upstream does not read the content
 files this fork keeps them in, so they are invisible there — everything returns when the
 fork is flashed back.
 
-## BOOX Picco
-
-This build runs on a retail unit: display, touch, buttons, frontlight, and sleep and wake work.
-It is still experimental and comes with no promise that it works. Flashing it may void your warranty, and you do so at your own risk.
-
-Build it with `pio run -e picco`, which writes `.pio/build/picco/firmware-picco.bin`.
-
-The Picco keeps its vendor bootloader, partition table and `safeboot` recovery partition. The
-firmware goes only into the stock `app` slot at `0xE0000`. Install it with one of these:
-
-- the Boox flasher's OTA mode
-- the [CrossPoint flash tools](https://crosspointreader.com/#flash-tools)
-
-Rules for this device:
-
-- Never use the esptool command below, or any write at `0x10000`. On the Picco that address is
-  inside the `safeboot` partition.
-- The `erase`, `erase_upload`, `uploadfs` and `uploadfsota` PlatformIO targets are blocked for
-  this build because they would destroy the stock layout. Do not work around that.
-- There is no OTA or SD card update. The stock table has one app slot, so the firmware could only
-  overwrite itself. `Check for Updates` and `SD Card Firmware Update` are hidden.
-
 ## Command Line
 
 These instructions are for macOS and Linux, and for the ESP32-C3 devices (X3 and X4);
-for the other devices, use the web installer.
+for Picco, follow [BOOX Picco](#boox-picco) above; for the other devices, use the web
+installer.
 
 Install `esptool`:
 

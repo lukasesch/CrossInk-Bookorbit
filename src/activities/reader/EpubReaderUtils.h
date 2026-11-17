@@ -78,7 +78,7 @@ inline bool progressIsFurther(const Progress& a, const Progress& b) {
 // through moves and renames; the path-keyed copy in the render cache is what stock
 // CrossInk reads and writes, so a firmware revert keeps working. When both exist, the
 // further position wins: a detour through stock firmware never rewinds the fork's
-// position, and vice versa.
+// position, and vice versa. Each home is a pair of slots (ProgressRecord.h).
 inline bool loadProgress(const Epub& epub, Progress& progress, const char* moduleName = "ERS") {
   Progress pathCopy;
   const bool hasPathCopy = loadProgressPath(epub.getCachePath() + "/progress.bin", pathCopy, moduleName);
@@ -106,9 +106,9 @@ inline bool loadProgress(const Epub& epub, Progress& progress, const char* modul
   return false;
 }
 
-// Writes fields into one progress home, alternating between its file and .bak slot so
-// the older record survives an interrupted write. Unchanged progress is not rewritten.
-inline bool writeProgressPath(const std::string& path, const progress_record::Fields& fields) {
+// Writes one progress home: the older of its two slots is overwritten in place, and an
+// unchanged position is not written at all.
+inline bool saveProgressPath(const std::string& path, const progress_record::Fields& fields) {
   const std::string backupPath = path + ".bak";
   const auto primary = readProgressSlot("ERS", path);
   const auto backup = readProgressSlot("ERS", backupPath);
@@ -133,14 +133,14 @@ inline bool saveProgress(const Epub& epub, int spineIndex, int pageNumber, int p
   const progress_record::Fields fields{static_cast<uint16_t>(spineIndex), static_cast<uint16_t>(pageNumber),
                                        static_cast<uint16_t>(pageCount),  true,
                                        visibleTextOffset.value_or(0),     visibleTextOffset.has_value()};
-  // Saves are debounced, so the second small write costs little next to what it buys:
-  // the content-keyed copy survives moves and renames, the path-keyed copy keeps stock
-  // CrossInk fully working after a firmware revert.
-  const bool pathOk = writeProgressPath(epub.getCachePath() + "/progress.bin", fields);
+  // Saves are debounced and skip unchanged positions, so the second home costs little
+  // next to what it buys: the content-keyed copy survives moves and renames, the
+  // path-keyed copy keeps stock CrossInk fully working after a firmware revert.
+  const bool pathOk = saveProgressPath(epub.getCachePath() + "/progress.bin", fields);
   bool stateOk = true;
   const std::string stateDir = BookContentId::bookStateDir(epub.getPath());
   if (!stateDir.empty()) {
-    stateOk = writeProgressPath(stateDir + "/progress.bin", fields);
+    stateOk = saveProgressPath(stateDir + "/progress.bin", fields);
   }
   return pathOk && stateOk;
 }

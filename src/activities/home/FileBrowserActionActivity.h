@@ -33,10 +33,11 @@ enum class FileBrowserAction : int {
   ToggleBookStatsTracking = 20,
   UploadFolderProgress = 21,
   SyncProgress = 22,
-  // BookOrbit catalog book rows.
-  Open = 23,
-  Download = 24,
-  Redownload = 25,
+  // BookOrbit catalog book rows. This fork's actions start at 64 so that upstream's next
+  // ones never take their numbers; the values only travel within one menu result.
+  Open = 64,
+  Download = 65,
+  Redownload = 66,
 };
 
 class FileBrowserActionActivity final : public Activity {

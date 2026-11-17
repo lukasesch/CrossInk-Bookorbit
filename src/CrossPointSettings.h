@@ -11,6 +11,7 @@
 #include <mutex>
 
 #include "ReaderFontSizeStep.h"
+#include "TiltSensitivity.h"
 #include "util/ReaderStatusBarConfig.h"
 
 class CrossPointSettings : public PersistableStore<CrossPointSettings> {
@@ -297,8 +298,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     TOGGLE_PAGE_TURN_GESTURES = 40,
     // This fork's own action, kept last so upstream can keep appending to its own
     // range. Each time upstream takes its number it moves past the new entries, and
-    // migrateBookOrbitShortcutValues() carries saved shortcuts over: it was 33 up to
-    // v1.6.0+bookorbit.2 and 37 on CrossInk v1.6.1, which v2.0.0 persists as BACK_HOME.
+    // carryBookOrbitShortcut() brings saved shortcuts over: it was 33 up to
+    // v1.6.0+bookorbit.2 (CrossInk v1.6.1's LIBRARY), then 37 up to v1.6.1+bookorbit.5
+    // (CrossInk v2.0.0's BACK_HOME).
     BOOKORBIT_SYNC = 41,
     SHORT_PWRBTN_COUNT
   };
@@ -345,7 +347,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     CHORD_ROTATE_FLIP = 35,
     CHORD_TOGGLE_PAGE_TURN_GESTURES = 36,
     // This fork's own action, kept last like BOOKORBIT_SYNC above (31 up to
-    // v1.6.0+bookorbit.2, 33 on CrossInk v1.6.1).
+    // v1.6.0+bookorbit.2, now CHORD_LIBRARY; 33 up to v1.6.1+bookorbit.5, now
+    // CHORD_BACK_HOME).
     CHORD_BOOKORBIT_SYNC = 37,
     POWER_CHORD_ACTION_COUNT
   };
@@ -384,7 +387,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     MINIMAL = 5,
     DASHBOARD = 6,
     COVER_GRID = 7,
-    UI_THEME_COUNT = 8
+    BOOKORBIT = 8,
+    UI_THEME_COUNT = 9
   };
   enum RECENT_BOOKS_VIEW { RECENT_BOOKS_LIST = 0, RECENT_BOOKS_GRID = 1, RECENT_BOOKS_VIEW_COUNT };
 
@@ -445,7 +449,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     LONG_MENU_ROTATE_FLIP = 28,
     LONG_MENU_TOGGLE_PAGE_TURN_GESTURES = 29,
     // This fork's own action, kept last like BOOKORBIT_SYNC above (24 up to
-    // v1.6.0+bookorbit.2, 25 on CrossInk v1.6.1).
+    // v1.6.0+bookorbit.2, now LONG_MENU_LIBRARY; 25 up to v1.6.1+bookorbit.5, now
+    // LONG_MENU_HOME_READER).
     LONG_MENU_BOOKORBIT_SYNC = 30,
     LONG_PRESS_MENU_ACTION_COUNT
   };
@@ -522,6 +527,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // for a clock that survives sleep, and boards with a real RTC (X3) do not need it.
   // See HalPowerManager::startDeepSleep.
   uint8_t keepClockInSleep = 0;
+  // Let Check for Updates offer this fork's release candidates (GitHub pre-releases) as well
+  // as its final releases. Off by default: candidates are test builds.
+  uint8_t otaIncludePrereleases = 0;
   // Set once an NTP sync succeeds. Used to skip re-syncing on every WiFi connect.
   // Resetting to 0 (e.g. via the web UI) forces a re-sync on next WiFi connect.
   uint8_t clockHasBeenSynced = 0;
@@ -654,6 +662,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t uiScale = defaultUiScale();
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
+  static bool fadingFixSupported();
   // Quick-return from footnotes when a footnote shortcut is active.
   uint8_t pwrBtnFootnoteBack = 1;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
@@ -716,6 +725,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t tiltPageTurn = TILT_OFF;
   uint8_t tiltPageTurnDirection = TILT_LEFT_RIGHT;
   uint8_t tiltNextPageOnly = 0;
+  uint8_t tiltSensitivity = TiltSensitivity::NORMAL;
   // Frontlight quick-panel state (boards with FREEINK_CAP_FRONTLIGHT, e.g. X4
   // Pro). Applied at boot, edited only from the frontlight panel; persisted as
   // category-less entries so they stay out of the Settings screen. Writes are

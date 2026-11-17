@@ -240,6 +240,10 @@ device model and build.
   - "Lyra Carousel" - A carousel-based Lyra home layout
   - "RoundedRaff" - A rounded theme with additional visual styling (button devices only)
   - "Cover Grid" (supported devices, such as Sticky and X4 Pro) - Shows the current book and up to six additional book covers; tap a cover to open that book
+  - "BookOrbit" - Home as pages of tiles, modeled on BookOrbit's dashboard: the
+    current book, streak, week and other books being read, then the catalog's
+    shelves, then your reading statistics. It works from the SD card and never
+    waits on the network. See **[BookOrbit Home](./reader-features.md#bookorbit-home)**.
 
   Themes that show reading stats hide those stats while **Track Reading Stats** is off.
 
@@ -298,7 +302,7 @@ individual global changes. **Delete Book Cache** does not reset these choices.
 
 - **Embedded Style**, **Images** (including **Display (B&W)**), **Focus Reading**, **Guide Dots**, **Dictionary**, and **Indexing Method** are also in the Reader settings. See [Reader Features](./reader-features.md) for what they do, including the [Focus Reading](./reader-features.md#focus-reading) guide.
 
-- **Disable Touchscreen** (touch devices): Block screen-touch input while a book is open, while leaving touch available in reader menus so you can turn it back on. To disable only touch page turns, use **Next Page** and **Previous Page** in **Settings > Controls > Taps & Gestures**.
+- **Disable Touchscreen** (touch devices): Block screen-touch input while a book is open, while leaving touch available in reader menus so you can turn it back on. On EEGO, restarting the device also re-enables the touchscreen automatically. To disable only touch page turns, use **Next Page** and **Previous Page** in **Settings > Controls > Taps & Gestures**.
 
 - **Status Bars**: Set up the bars shown while reading. Open **Settings > Reader > Status Bars**, or the Reader Menu's **Settings** tab > **Status Bars**. A preview shows the result at its reading position.
   - **Top Status Bar** and **Bottom Status Bar** (EPUB and TXT): Each has three left slots, one center slot, and three right slots. Fill a slot with any of: Clock and Date (devices with a clock), Battery, Time Left (book or chapter), Chapter Page Count (for example 5/25; it changes with font size and margins), Stable Page Numbers (needs page reference information in the EPUB; see [Stable Page Numbers](./reader-features.md#stable-page-numbers)), Book Progress Percentage, Title (book or chapter), or Empty.
@@ -383,6 +387,12 @@ Which entries you see depends on your device. Button devices show **Front Button
 - **Check for Updates** and **SD Card Firmware Update**: Check for new firmware over Wi-Fi, or install a `firmware.bin` file you placed on the SD card.
 
 - **About**: Shows the device model, software version, screen, storage, and memory details. Use the buttons or swipe to scroll; **Back** returns to Settings. The figures are captured when the screen opens; reopen it for a fresh snapshot. See [Troubleshooting](./troubleshooting.md#device-information). You can also choose **Export** to save a support file (`/crossink-support.json`) to the SD card, with device and global settings alone or with the last opened EPUB's saved settings without its title or filename. Nothing is uploaded. See [export coverage and privacy](./troubleshooting.md#export-support-information).
+
+- **Include Release Candidates**: Off by default. When on, Check for Updates also
+  offers this fork's release candidates, the test builds published ahead of a
+  release, whenever one is newer than both the installed firmware and the latest
+  release. Turning it back off keeps the installed candidate until a newer
+  release comes out: the updater never installs an older version.
 
 - **Language** (in **Device**): Set the menu language. CrossInk supports 28 languages: English, Spanish, French, German, Czech, Brazilian Portuguese, Russian, Swedish, Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish, Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, Hebrew, Vietnamese, Slovak, Portuguese (Portugal), and Arabic. English is included. Download other languages on the reader or install them from SD; see [Languages](./languages.md).
 
@@ -678,7 +688,11 @@ Choose **Disabled** in **Next Page** or **Previous Page** to stop touch page
 turns in that direction without disabling the touchscreen's vertical reader-menu
 or frontlight gestures. **Disable Touchscreen**, in **Settings > Reader**,
 prevents screen-touch input while a book is open but keeps it available in
-reader menus. For the different touch selection gestures used by [dictionary
+reader menus. On **EEGO**, Up + Down is reserved for hardware reset and is
+unavailable as a shortcut or Quick Actions trigger. Restarting the EEGO
+automatically re-enables touch, even if it was disabled before the restart;
+other devices keep their existing touch setting. For the different touch
+selection gestures used by [dictionary
 lookup](./dictionary.md#looking-up-a-word) and [clippings](./reader-features.md#clippings-and-highlights), see those feature guides.
 
 On devices with multi-touch support, you can also assign actions to two-finger

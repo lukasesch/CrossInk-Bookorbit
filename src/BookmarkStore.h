@@ -77,6 +77,9 @@ class BookmarkRecords {
   const Bookmark* end() const { return count ? data() + count : data(); }
   Bookmark& operator[](size_t index) { return records[index]; }
   const Bookmark& operator[](size_t index) const { return records[index]; }
+  // Callers check !empty() first, as with std::vector.
+  Bookmark& back() { return records[count - 1]; }
+  const Bookmark& back() const { return records[count - 1]; }
 
  private:
   std::unique_ptr<Bookmark[]> records;

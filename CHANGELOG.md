@@ -7,18 +7,102 @@ on; for everything inherited from upstream, see the
 
 ## [Unreleased]
 
-Based on CrossInk v2.0.0 (pre-release `release/v2.0.0` `b8feaec4`).
+Based on CrossInk v2.0.0.
 
 ### Added
 
+- Releases now include a firmware for the BOOX Picco. It installs over USB into the reader's application slot and leaves the factory recovery software untouched; see [Installation](docs/installation.md#boox-picco). As on upstream CrossInk, Picco has no Wi-Fi or SD card firmware update. The PlatformIO `erase`, `erase_upload`, `uploadfs` and `uploadfsota` targets refuse to run for the `picco` build, since each would destroy the vendor bootloader or recovery partition.
 - `Settings > Display > Frontlight > Brightness & Warmth` opens the brightness and warmth sliders, on every reader with a frontlight, besides the swipe gesture.
 - BOOX Picco: the slide switch has a position, not a toggle. `Settings > Controls > Slide Switch` binds it to the frontlight (the default), Dark Mode, Touch Reader Controls or Tilt Page Turn, and the feature follows the switch at every move, start and wake. While the switch owns a function, its other toggles are hidden or do nothing, and the light at wake follows the switch rather than Restore Light on Wake or the schedule.
 - A book downloaded from the BookOrbit catalog takes the server's reading position the first time you open it, without opening any menu. The reader joins a saved Wi-Fi network, syncs progress, highlights and bookmarks, and opens the book there. Without Wi-Fi, a reachable server or server progress, the book opens at its start and the next open tries again, until a sync of the book has completed or you have read in it.
-- `picco` build for the BOOX Picco, on CrossInk v2.0.0's Picco support. It installs into the stock app slot only and has no OTA or SD card update, because the stock partition table has one app slot. The PlatformIO `erase`, `erase_upload`, `uploadfs` and `uploadfsota` targets refuse to run for it, since each would destroy the vendor bootloader or recovery partition. See the [installation guide](docs/installation.md#boox-picco).
 
 ### Changed
 
 - Smart sync and Sync on Sleep take the server position for a book never synced on this device that is still at its start, instead of asking. There is nothing on the device to overwrite.
+- Interface languages other than English are no longer built into the firmware: CrossInk v2.0.0 moved them out to make room. This fork publishes its own language packs, so **Settings > System > Device > Download Languages** installs them over Wi-Fi, and after the update What's New offers to download the language you were using. Upstream's packs cannot be used here: they lack this fork's screens. Each release also carries `crossink-languages-<version>.zip` for installing them from the SD card instead.
+- The BookOrbit screens, sync messages and Home theme are now translated into all 28 languages besides English, Estonian included, not only the 8 this fork covered before.
+- The OPDS browser moves from Home to File Transfer, as in CrossInk v2.0.0, to make room for Plugins. The BookOrbit catalog stays on Home; on the Cover Grid home screen its tab now sits next to Plugins.
+- The Xteink X3 and X4 no longer have an OPDS browser: CrossInk v2.0.0's latest changes no longer fit on them alongside BookOrbit, and the BookOrbit catalog covers the same need. Its File Transfer entry, its settings and its section of the web settings page are gone on these two readers; saved OPDS servers stay on the SD card. The X4 Pro, X4 Classic, Sticky, Picco and EEGO A4 keep it.
+- A book download from the BookOrbit catalog now reserves room for the largest piece of secure data the way CrossInk v2.0.0 does for OPDS books: once the request is sent, while memory is still in one piece. A server that agrees to small pieces, as most nginx and Apache setups do, no longer costs that reservation at all ([#96](https://github.com/agosez/CrossInk-Bookorbit/issues/96)).
+- KOReader Sync, which CrossInk v2.0.0 renames Sync Server and extends to reading stats and clippings, stays out of this fork, and so do its new Sync Book, Sync Folder and Sync Books actions. A KOReader account saved before this fork removed it keeps them.
+
+### Fixed
+
+- Shortcuts set to BookOrbit Sync keep working after this update. CrossInk v2.0.0 gives the numbers they were saved under to Back Home and Home/Reader, so they are carried over the first time the device starts, on every button that offers BookOrbit Sync, the Home key and Quick Actions included.
+- BookOrbit Sync no longer sends a guessed position when the device cannot place the page within the book's structure: the sync stops with an error instead. A guessed position could send another reader to the wrong place, or to the start of the book.
+- Download Languages and Hyphenation Packs work on the X3 and X4. The download failed every time after a minute of waiting: with Wi-Fi on, the reader had too little memory left for the secure connection it opened. It now uses the lighter one that BookOrbit Sync and font downloads already use, as CrossInk v2.0.0-RC also fails there ([CrossInk#927](https://github.com/uxjulia/CrossInk/issues/927)).
+
+### Security
+
+- Language and hyphenation catalogs are now signed by this fork's release workflow, and the reader refuses one whose signature does not hold. The signature also covers the license and source indexes each pack comes with, so every file a language or hyphenation download writes to the SD card is checked against it, whatever the connection it arrived over.
+
+## [v1.6.1+bookorbit.8] - 2026-11-13
+
+Based on CrossInk v1.6.1.
+
+### Added
+
+- With the BookOrbit theme, the two shelves at the top of the Library page, Discover and Recently added, can each show something else: Discover, Recently added, Want to Read, one of your BookOrbit collections or one of your SmartScopes. Pick them in Settings > BookOrbit Sync > Home. Its Refresh lists row fetches your collections and SmartScopes from the server, so one created since is there to pick. Each shelf's header names what it shows, with an icon to match: a folder for a collection, an aperture for a SmartScope, a bookmark for Want to Read. A collection or SmartScope shelf shows its most recently added books. Leaving the screen after a change syncs Home, so the new shelves are there when it opens. After updating, Home shows only the device's own data until its next sync.
+- With the BookOrbit theme, "All (N) >" in the header of Home's Also Reading tile now opens the BookOrbit catalog's Continue Reading list, where every book you are reading shows, not only the few that fit on Home. On the X3 and X4, Up and Down select it after the BookOrbit tile; on touch devices, a tap anywhere on the tile's header opens it. Without a BookOrbit account, it opens the Library.
+
+### Changed
+
+- With the BookOrbit theme, the number in "All (N)" on Home's Also Reading tile is now how many books that Continue Reading list holds, counted on the server at each sync. It used to count the recent books on the device, so it could read "All (0)" above books being read elsewhere. Without a BookOrbit account, it still counts the recent books on the device. After updating, Home shows only the device's own data until its next sync.
+- The Home menu of the BookOrbit, Minimal and Dashboard themes is now a grid of tiles in the BookOrbit Home's style, each with an icon and its name, and the selected tile is circled as on Home. The grid starts right under the title, where Home's tiles start, and its size follows the number of entries; with the BookOrbit theme's two extra entries, the old list sat well below the middle of the screen, close to the button hints. The menu now reopens on the entry you last opened from it, until the reader restarts.
+- A BookOrbit sync now brings down every highlight added or deleted on the web, then sends every new highlight of the book, as it already did for reading sessions. It used to move 8 each way per sync, so a book highlighted offline, or on the web, took several syncs to catch up. The sync screen shows each direction on its own: "Receiving highlights from the server", then "Sending highlights to the server", each with a count ("16 / 100") above a progress bar.
+- The summary at the end of a BookOrbit sync now counts highlights both ways: those received from the server, added or deleted on the reader, and those sent, added or deleted on the server. A highlight deleted on the reader that the sync also deleted on the server was not counted before, and a deletion from the web counted even when the reader no longer had that highlight.
+
+### Fixed
+
+- Deleting a highlight on the reader now also deletes it in BookOrbit for a book with more than 64 highlights. Past that number the reader stopped telling the server which highlights it still held, for lack of memory, so deletions on such a book never left the reader. That list now takes about half the memory, and it is left out only when memory is short.
+- On the X3 and X4, a BookOrbit sync no longer restarts the reader when the server holds many highlights for the book that the reader has not received yet, as it does for every book after a BookOrbit upgrade. The server sends up to a hundred of them in each reply, and reading that reply whole could run out of memory. The reader now reads the reply as it arrives and keeps only the highlights it takes.
+- On the X3 and X4, a BookOrbit sync no longer restarts the reader for a book that holds many highlights, around a hundred. The sync read the book's highlight positions up to three times over while connected, and making room for the first highlight received doubled the book's list of highlights in memory; either could leave the reader out of memory. It now reads the positions once and sets room aside for what it receives when it opens the list, and if memory is still short it leaves the highlights on the server for the next sync instead of restarting.
+- With the BookOrbit theme and Sync on Sleep, the BookOrbit tile on Home no longer counts a failed sync as done. When the sync behind the sleep screen could not exchange the book's progress with the server, Home still refreshed from the server, and the tile showed that sync as having just happened. Home now stays as it was, and the tile keeps the time of the last sync that worked.
+- With the BookOrbit theme and Sync on Sleep, Home now also refreshes after a sleep sync that sent the book's progress to the server. Sending it turned Wi-Fi off, so Home could not reach the server afterwards and the tile kept the time of an earlier sync.
+
+## [v1.6.1+bookorbit.7] - 2026-11-08
+
+Based on CrossInk v1.6.1.
+
+### Changed
+
+- On the X3 and X4, a book picked on a BookOrbit theme shelf now downloads after one restart and one Wi-Fi connection instead of two. The reader used to connect, announce the download, then restart and connect again before it started.
+
+### Fixed
+
+- With the BookOrbit theme, Home no longer stalls at each start when the SD card is formatted as FAT32: a few seconds on a typical card, several minutes on a slow one, with the screen stuck on "Loading". Home counted the card's used space for the Library page's storage bar, which on FAT32 means reading the whole file allocation table. The storage bar now only appears on exFAT cards, where the same count takes a fraction of a second ([#110](https://github.com/agosez/CrossInk-Bookorbit/issues/110)).
+- Book downloads from the BookOrbit catalog and OPDS no longer wait for that same count before they start on a FAT32 card. A card that runs out of space is still reported as full once the download fails ([#110](https://github.com/agosez/CrossInk-Bookorbit/issues/110)).
+
+## [v1.6.1+bookorbit.6] - 2026-11-07
+
+Based on CrossInk v1.6.1.
+
+### Fixed
+
+- With the BookOrbit theme, closing the panel pulled down from the top of the Home screen no longer freezes the X4 Pro and Sticky until a restart. The panel stayed on screen and the reader stopped responding to touch and buttons ([#107](https://github.com/agosez/CrossInk-Bookorbit/issues/107)).
+- On the X3, the frame around the selected book on the BookOrbit theme's Library page no longer runs into the frame of its shelf. The shelf covers are a little smaller to make room, and the next sync downloads them again at their new size ([#108](https://github.com/agosez/CrossInk-Bookorbit/issues/108)).
+
+## [v1.6.1+bookorbit.5] - 2026-11-06
+
+Based on CrossInk v1.6.1.
+
+### Added
+
+- A BookOrbit catalog book list can be sorted and filtered by reading status. Sort offers the Library's orders that BookOrbit supports (date added, title, author by last name, recently read, series), with A-Z or Z-A first in the list as in the Library; Filter shows all books, or only unread, reading or finished ones. On the X3 and X4, Left sorts and Right filters while Up and Down move through the list, as in the Library; on touch devices, two buttons in the header do the same. The server sorts and filters, so a long list still pages exactly, and the header shows the filter and how many books match. The choice applies to the list you are in, and comes back after a download on the X3 and X4.
+- BookOrbit catalog book lists are split into sections, as the Library is when its List View is Expanded: by first letter when sorted by title or author, by day when sorted by date added, and by series when sorted by series. The sort picker can switch the List View between Expanded and Compact, the same setting the Library uses.
+- The BookOrbit catalog lists your Want to Read shelf, the books you most recently marked as want to read in BookOrbit, as its KOReader plugin shows them. It appears when your server offers that shelf, which holds a dozen books at most.
+- Settings > System > Include Release Candidates lets Check for Updates offer this fork's release candidates, the test builds published ahead of a release. It is off by default. When on, the reader is offered whichever is newer, the latest candidate or the latest release, so it moves from one candidate to the next and then to the final release. Turning it back off keeps the installed candidate until a newer release comes out, as the updater never installs an older version.
+- A new **BookOrbit** theme turns Home into pages of tiles modeled on BookOrbit's dashboard: the current book, your streak, the week's reading, your yearly goal and your other books; then the catalog's Discover and Recently Added shelves; then a year of reading, a finish forecast and your totals. Confirm resumes your book in one press. Opening Home never waits on the network: Sync on Sleep or the BookOrbit tile refresh the server's data, and your reading on the device counts on Home straight away until the server's numbers include it. Without an account the theme runs on your own numbers.
+- Reading time per day is now recorded on the X4 as well, once its clock has been set over Wi-Fi. The X4 has no clock chip, so its streak and calendar statistics used to stay empty.
+
+### Fixed
+
+- Downloading a book from the BookOrbit catalog or an OPDS server no longer fails after about 100 KB with "Download failed" on the X3 and X4 when the server sits behind Caddy, Traefik or another proxy written in Go. These servers start with small pieces of secure data and send larger ones as the transfer goes on, and the reader made room for each new size until no large enough block of memory was left. It now sets aside room for the largest piece as the connection opens ([#96](https://github.com/agosez/CrossInk-Bookorbit/issues/96)).
+- Browsing past the second page of a BookOrbit catalog listing, or opening a book found there, no longer fails with "Could not reach BookOrbit" on the X3 and X4. Every page shown used to stay in memory until too little was left for a secure connection. The catalog now keeps only the pages around the one on screen and reloads the others from the SD card, and on the X3 and X4 it opens after a quick restart, as the OPDS browser does ([#96](https://github.com/agosez/CrossInk-Bookorbit/issues/96)).
+
+### Changed
+
+- Back from a book list opened from Authors, Series, Collections, Libraries or SmartScopes returns to the entry you opened it from, instead of the top of that list.
 
 ## [v1.6.1+bookorbit.4] - 2026-10-30
 

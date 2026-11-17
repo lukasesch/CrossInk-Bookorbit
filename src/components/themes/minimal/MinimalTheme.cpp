@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "CalibratedThemeLayout.h"
 #include "RecentBooksStore.h"
 #include "activities/reader/BookReadingStats.h"
 #include "activities/reader/GlobalReadingStats.h"
@@ -29,10 +30,12 @@
 #include "components/UiAppHelpers.h"
 #include "components/icons/afternoon.h"
 #include "components/icons/book24.h"
+#include "components/icons/bookOrbitIcons.h"
 #include "components/icons/evening.h"
 #include "components/icons/morning.h"
 #include "components/icons/night.h"
 #include "components/icons/streak.h"
+#include "components/themes/bookorbit/BookOrbitHomeLayout.h"
 #include "fontIds.h"
 
 namespace {
@@ -71,13 +74,6 @@ constexpr int kFileBrowserIconSize = 24;
 constexpr int kFileBrowserRowVerticalPadding = 6;
 constexpr int kFileBrowserTextGap = 8;
 constexpr int kFileBrowserValueMaxWidth = 76;
-constexpr int kMenuPanelWidth = 384;
-constexpr int kMenuRowHeight = 64;
-constexpr int kMenuPanelTop = 210;
-constexpr int kMenuPanelRadius = 3;
-constexpr int kMenuSelectionTriangleWidth = 14;
-constexpr int kMenuSelectionTriangleHeight = 20;
-constexpr int kMenuSelectionTriangleInset = 30;
 constexpr int kCoverTopOffset = 0;
 constexpr int kProgressBlockGap = 8;
 constexpr int kProgressBarGap = 4;
@@ -86,6 +82,88 @@ constexpr int kStatsFooterReaderIconSize = 24;
 constexpr int kStatsFooterStreakIconSize = 24;
 constexpr int kStatsFooterSideInset = 48;
 int homeButtonHintSelection = -1;
+
+// The Home menu: tiles drawn like the BookOrbit Home's, in as many columns as the width
+// holds, from where the BookOrbit Home's tiles start down to the button hints. Anchored at
+// the top like Home's pages, a tile keeps its place whatever the number of entries.
+using BookOrbitHomeLayout::kGap;
+using BookOrbitHomeLayout::kMargin;
+using BookOrbitHomeLayout::kPad;
+using BookOrbitHomeLayout::kRingOutset;
+using BookOrbitHomeLayout::kRingWidth;
+using BookOrbitHomeLayout::kTileRadius;
+using BookOrbitHomeLayout::kTitleRowTop;
+constexpr int kMenuMinTileWidth = 200;  // two columns in portrait, three in landscape
+constexpr int kMenuIconSize = 32;
+constexpr int kMenuIconGap = 8;
+constexpr int kMenuLabelLines = 2;
+constexpr int kMenuDotRadius = 4;
+constexpr int kMenuDotPitch = 15;
+
+struct MenuGrid {
+  Rect block;  // a full page of tiles
+  int columns = 1;
+  int pageRows = 1;
+  int tileHeight = 0;
+
+  int pageItems() const { return columns * pageRows; }
+};
+
+MenuGrid menuGrid(const GfxRenderer& renderer, const int buttonCount) {
+  MenuGrid grid;
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !gpio.hasTouch(), false);
+  const int top = BookOrbitHomeLayout::grid(renderer).top;
+  const int height = std::max(0, safe.y + safe.height - kGap - top);
+  const int width = safe.width - 2 * kMargin;
+
+  grid.columns = std::clamp((width + kGap) / (kMenuMinTileWidth + kGap), 1, std::max(1, buttonCount));
+  grid.tileHeight =
+      2 * kPad + kMenuIconSize + kMenuIconGap + kMenuLabelLines * renderer.getLineHeight(uiScaleSpec().bodyFontId);
+  const int rows = (buttonCount + grid.columns - 1) / grid.columns;
+  grid.pageRows = std::clamp((height + kGap) / (grid.tileHeight + kGap), 1, std::max(1, rows));
+
+  const int blockHeight = grid.pageRows * grid.tileHeight + (grid.pageRows - 1) * kGap;
+  grid.block = Rect{safe.x + kMargin, top, width, blockHeight};
+  return grid;
+}
+
+// A row with fewer tiles than columns, the last one, spreads them over the whole width.
+Rect menuTileRect(const MenuGrid& grid, const int buttonCount, const int index) {
+  const int slot = index % grid.pageItems();
+  const int column = slot % grid.columns;
+  const int inRow = std::min(grid.columns, buttonCount - (index - column));
+  const int width = (grid.block.width - (inRow - 1) * kGap) / inRow;
+  const int x = grid.block.x + column * (width + kGap);
+  const int right = column == inRow - 1 ? grid.block.x + grid.block.width : x + width;
+  return Rect{x, grid.block.y + slot / grid.columns * (grid.tileHeight + kGap), right - x, grid.tileHeight};
+}
+
+freeink::ui::Rect uiRect(const int x, const int y, const int width, const int height) {
+  return freeink::ui::Rect{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(width),
+                           static_cast<int16_t>(height)};
+}
+
+// The icon over its label, wrapped on two lines; a tile three times wider than tall, the
+// last row's, puts them side by side on one line instead.
+void drawMenuTileContent(const GfxRenderer& renderer, freeink::ui::DrawTarget& target, const Rect& tile,
+                         const char* label, const freeink::Icon* icon, freeink::ui::TextStyle style) {
+  const int iconSpace = icon != nullptr ? kMenuIconSize + kMenuIconGap : 0;
+  if (tile.width >= 3 * tile.height) {
+    style.maxLines = 1;
+    const int available = tile.width - 2 * kPad - iconSpace;
+    const int labelWidth = std::min<int>(available, target.measureText(style.font, label, style).width);
+    const int x = tile.x + (tile.width - iconSpace - labelWidth) / 2;
+    if (icon != nullptr) drawLucideIcon(renderer, *icon, x, tile.y + (tile.height - kMenuIconSize) / 2);
+    target.text(uiRect(x + iconSpace, tile.y, labelWidth, tile.height), label, style);
+    return;
+  }
+
+  const int labelWidth = tile.width - 2 * kPad;
+  const int labelHeight = freeink::ui::measureWrappedText(target, label, style, labelWidth).height;
+  const int y = tile.y + (tile.height - iconSpace - labelHeight) / 2;
+  if (icon != nullptr) drawLucideIcon(renderer, *icon, tile.x + (tile.width - kMenuIconSize) / 2, y);
+  target.text(uiRect(tile.x + kPad, y + iconSpace, labelWidth, labelHeight), label, style);
+}
 
 bool dominantReaderTypeBucket(const GlobalReadingStats& globalStats, ReadingTimeBucket& bucketOut) {
   const auto& values = globalStats.timeOfDaySeconds;
@@ -158,24 +236,26 @@ Rect coverImageRectForFrame(const Rect& coverRect);
 
 void drawCenteredStatsRow(const GfxRenderer& renderer, const uint8_t* icon, const int iconSize, const char* label,
                           const int regionTop, const int regionBottom, const bool inverted) {
-  const int screenWidth = renderer.getScreenWidth();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer);
   const int regionHeight = regionBottom - regionTop;
   if (regionHeight <= 0) {
     return;
   }
 
-  const int labelLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const int rowHeight = std::max(labelLineHeight, iconSize);
-  const int topY = regionTop + std::max(0, regionHeight - rowHeight) / 2;
-  const int availableWidth = std::max(1, screenWidth - kStatsFooterSideInset * 2);
+  const int availableWidth = std::max(1, safe.width - kStatsFooterSideInset * 2);
   const int iconTextGap = 10;
   const std::string text = renderer.truncatedText(UI_10_FONT_ID, label, availableWidth - iconSize - iconTextGap);
+  const auto ink = renderer.getTextVerticalBounds(UI_10_FONT_ID, text.c_str());
+  const int textHeight = ink.bottom - ink.top;
+  const int rowHeight = std::max(textHeight, iconSize);
+  if (regionHeight < rowHeight) return;
+  const int topY = regionTop + (regionHeight - rowHeight) / 2;
   const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, text.c_str());
   const int blockWidth = iconSize + iconTextGap + textWidth;
-  const int iconX = (screenWidth - blockWidth) / 2;
+  const int iconX = safe.x + (safe.width - blockWidth) / 2;
   const int iconY = topY + (rowHeight - iconSize) / 2;
   const int textX = iconX + iconSize + iconTextGap;
-  const int textY = topY + (rowHeight - labelLineHeight) / 2;
+  const int textY = topY + (rowHeight - textHeight) / 2 - ink.top;
 
   if (inverted) {
     renderer.drawIcon(icon, iconX, iconY, iconSize, iconSize);
@@ -185,19 +265,13 @@ void drawCenteredStatsRow(const GfxRenderer& renderer, const uint8_t* icon, cons
   renderer.drawText(UI_10_FONT_ID, textX, textY, text.c_str(), inverted);
 }
 
-int progressLabelBottomY(const GfxRenderer& renderer, const Rect& coverRect, const float progressPercent) {
-  if (progressPercent < 0.0f) {
-    return coverRect.y + coverRect.height;
-  }
-
-  const int durationY = coverRect.y + coverRect.height + kProgressBlockGap;
-  const int barY = durationY + renderer.getLineHeight(UI_10_FONT_ID) + kProgressBarGap;
-  const int labelY = barY + kProgressBarHeight + kProgressLabelGap;
-  return labelY + renderer.getLineHeight(UI_10_FONT_ID);
+int progressBlockHeight(const GfxRenderer& renderer) {
+  return kProgressBlockGap + renderer.getLineHeight(UI_10_FONT_ID) * 2 + kProgressBarGap + kProgressBarHeight +
+         kProgressLabelGap;
 }
 
 void drawStatsOverlay(const GfxRenderer& renderer, const GlobalReadingStats& globalStats, const Rect& coverRect,
-                      const float progressPercent, const bool inverted) {
+                      const bool inverted) {
   if (!gpio.deviceIsX3()) {
     return;
   }
@@ -206,24 +280,25 @@ void drawStatsOverlay(const GfxRenderer& renderer, const GlobalReadingStats& glo
   formatStreakStat(globalStats, streakBuf, sizeof(streakBuf));
   const char* readerLabel = readerTypeLabel(globalStats);
 
-  const int readerRegionTop = 0;
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer);
+  const int readerRegionTop = safe.y;
   const int readerRegionBottom = coverImageRectForFrame(coverRect).y;
   drawCenteredStatsRow(renderer, readerTypeIcon(globalStats), kStatsFooterReaderIconSize, readerLabel, readerRegionTop,
                        readerRegionBottom, inverted);
 
-  const int streakRegionTop = progressLabelBottomY(renderer, coverRect, progressPercent);
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int streakRegionTop = coverRect.y + coverRect.height + progressBlockHeight(renderer);
   const int streakRegionBottom = safe.y + safe.height;
   drawCenteredStatsRow(renderer, StreakIcon, kStatsFooterStreakIconSize, streakBuf, streakRegionTop, streakRegionBottom,
                        inverted);
 }
 
-Rect coverRectForScreen(const GfxRenderer& renderer, const Rect& rect) {
-  const int coverH = MinimalMetrics::values.homeCoverHeight;
-  const int coverW = MinimalMetrics::homeCoverWidth;
-  const int coverX = (renderer.getScreenWidth() - coverW) / 2;
-  const int coverY = rect.y + kCoverTopOffset;
-  return Rect{coverX, coverY, coverW, coverH};
+Rect coverRectForScreen(const GfxRenderer& renderer, Rect content, const bool statsSleep = false) {
+  // Keep room for both progress labels even before reading stats have loaded.
+  const int progressHeight = progressBlockHeight(renderer);
+  const int statsHeight = statsSleep ? std::max(kStatsFooterStreakIconSize, renderer.getLineHeight(UI_10_FONT_ID)) : 0;
+  content.height = std::max(0, content.height - progressHeight - statsHeight);
+  return CalibratedThemeLayout::fitCover(content, MinimalMetrics::homeCoverWidth,
+                                         MinimalMetrics::values.homeCoverHeight, true);
 }
 
 Rect coverImageRectForFrame(const Rect& coverRect) {
@@ -231,19 +306,6 @@ Rect coverImageRectForFrame(const Rect& coverRect) {
   const int imageH = std::min(coverRect.height, MinimalMetrics::homeCoverImageHeight);
   return Rect{coverRect.x + (coverRect.width - imageW) / 2, coverRect.y + (coverRect.height - imageH) / 2, imageW,
               imageH};
-}
-
-Rect fittedBitmapRect(const Bitmap& bitmap, const Rect& target) {
-  if (bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0 || target.width <= 0 || target.height <= 0) {
-    return target;
-  }
-
-  const float widthScale = static_cast<float>(target.width) / static_cast<float>(bitmap.getWidth());
-  const float heightScale = static_cast<float>(target.height) / static_cast<float>(bitmap.getHeight());
-  const float scale = std::min(1.0f, std::min(widthScale, heightScale));
-  const int drawnW = std::min(target.width, std::max(1, static_cast<int>(std::ceil(bitmap.getWidth() * scale))));
-  const int drawnH = std::min(target.height, std::max(1, static_cast<int>(std::ceil(bitmap.getHeight() * scale))));
-  return Rect{target.x + (target.width - drawnW) / 2, target.y + (target.height - drawnH) / 2, drawnW, drawnH};
 }
 
 std::string coverPathForImageRect(const RecentBook& book, const Rect& imageRect) {
@@ -255,11 +317,7 @@ std::string coverPathForImageRect(const RecentBook& book, const Rect& imageRect)
     return Epub(book.path, "/.crosspoint").getAdaptiveThumbBmpPath(imageRect.width, imageRect.height);
   }
 
-  std::string coverBmpPath = UITheme::getCoverThumbPath(book.coverBmpPath, imageRect.width, imageRect.height);
-  if (coverBmpPath.empty() || !Storage.exists(coverBmpPath.c_str())) {
-    coverBmpPath = UITheme::getCoverThumbPath(book.coverBmpPath, imageRect.height);
-  }
-  return coverBmpPath;
+  return UITheme::getCoverThumbPath(book.coverBmpPath, imageRect.width, imageRect.height, false);
 }
 
 uint8_t selectedQuoteIndex() {
@@ -291,7 +349,8 @@ void drawProgressBlock(const GfxRenderer& renderer, const Rect& coverRect, const
   if (stats != nullptr && stats->totalReadingSeconds > 0) {
     char duration[32];
     BookReadingStats::formatDuration(stats->totalReadingSeconds, duration, sizeof(duration));
-    renderer.drawText(UI_10_FONT_ID, barX, durationY, duration, textBlack);
+    const auto visible = renderer.truncatedText(UI_10_FONT_ID, duration, barW);
+    renderer.drawText(UI_10_FONT_ID, barX, durationY, visible.c_str(), textBlack);
   }
 
   if (progressPercent < 0.0f) {
@@ -363,6 +422,7 @@ void drawMissingBookCover(const GfxRenderer& renderer, const Rect& coverRect, co
   int textY = dividerY + std::max(textVerticalPadding, (lowerAreaHeight - totalTextHeight) / 2);
 
   for (const auto& line : titleLines) {
+    if (textY + titleLineHeight > placeholderRect.y + placeholderRect.height) break;
     const int lineW = renderer.getTextWidth(renderer.filenameFontId(UI_12_FONT_ID), line.c_str());
     renderer.drawText(renderer.filenameFontId(UI_12_FONT_ID), placeholderRect.x + (placeholderRect.width - lineW) / 2,
                       textY, line.c_str());
@@ -372,6 +432,7 @@ void drawMissingBookCover(const GfxRenderer& renderer, const Rect& coverRect, co
   if (!authorLines.empty()) {
     textY += titleAuthorGap;
     for (const auto& line : authorLines) {
+      if (textY + authorLineHeight > placeholderRect.y + placeholderRect.height) break;
       const int lineW = renderer.getTextWidth(renderer.filenameFontId(UI_10_FONT_ID), line.c_str());
       renderer.drawText(renderer.filenameFontId(UI_10_FONT_ID), placeholderRect.x + (placeholderRect.width - lineW) / 2,
                         textY, line.c_str());
@@ -419,7 +480,7 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
   (void)subtitle;
   (void)readerContext;
 
-  renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
+  renderer.fillRect(0, rect.y, renderer.getScreenWidth(), rect.height, false);
 
   if (title) {
     const int titleFontId = filenameTitle ? renderer.filenameFontId(UI_12_FONT_ID) : UI_12_FONT_ID;
@@ -430,7 +491,7 @@ void MinimalTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char
     renderer.drawText(titleFontId, rect.x + titleInsetX,
                       rect.y + UITheme::getInstance().getMetrics().batteryBarHeight + 3, truncatedTitle.c_str(), true,
                       EpdFontFamily::BOLD);
-    renderer.drawLine(rect.x, rect.y + rect.height - 3, rect.x + rect.width - 1, rect.y + rect.height - 3, 3, true);
+    renderer.drawLine(0, rect.y + rect.height - 3, renderer.getScreenWidth() - 1, rect.y + rect.height - 3, 3, true);
   }
 
   if (showStatus) {
@@ -627,14 +688,18 @@ Rect MinimalTheme::buttonMenuPanelRect(const GfxRenderer& renderer, const int bu
   if (buttonCount <= 0) {
     return Rect{0, 0, 0, 0};
   }
+  return menuGrid(renderer, buttonCount).block;
+}
 
-  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int panelW = std::min(kMenuPanelWidth, safe.width - 80);
-  const int pageItems = std::max(1, std::min(buttonCount, (safe.height - 2) / kMenuRowHeight));
-  const int panelH = pageItems * kMenuRowHeight + 2;
-  const int panelX = safe.x + (safe.width - panelW) / 2;
-  const int panelY = std::clamp(kMenuPanelTop, safe.y, std::max(safe.y, safe.y + safe.height - panelH));
-  return Rect{panelX, panelY, panelW, panelH};
+const freeink::Icon* MinimalTheme::menuIcon(const UIIcon icon) {
+  switch (icon) {
+    case UIIcon::BookmarkIcon:  // Lyra draws its own ribbon instead
+      return &icon_bookmark_32;
+    case UIIcon::BookOrbit:
+      return &icon_bookorbit_32;
+    default:
+      return iconForName(icon, kMenuIconSize);
+  }
 }
 
 void MinimalTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
@@ -673,8 +738,7 @@ void MinimalTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, cons
       renderer.drawRoundedRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, 1, kButtonCornerRadius, true, true,
                                false, false, true);
     } else if (labels[i] != nullptr) {
-      // Clear the previous full-sized hint before drawing the inactive marker.
-      renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
+      // The caller restores the background when hints change; only cover the small marker.
       const int smallButtonY = pageHeight - smallButtonHeight - UITheme::getButtonHintsBottomInset(renderer);
       renderer.fillRoundedRect(x, smallButtonY, buttonWidth, smallButtonHeight, kButtonCornerRadius, Color::White);
       renderer.drawRoundedRect(x, smallButtonY, buttonWidth, smallButtonHeight, 1, kButtonCornerRadius, true, true,
@@ -698,6 +762,20 @@ void MinimalTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, cons
   renderer.setOrientation(origOrientation);
 }
 
+Rect MinimalTheme::getHomeCoverRect(const GfxRenderer& renderer) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  const int top = metrics.homeTopPadding + UITheme::getHeaderRect(renderer, 0).y - metrics.topPadding;
+  const auto content =
+      CalibratedThemeLayout::content(renderer, Rect{safe.x, top, safe.width, metrics.homeCoverTileHeight}, true);
+  return coverImageRectForFrame(coverRectForScreen(renderer, content));
+}
+
+Rect MinimalTheme::getSleepCoverRect(const GfxRenderer& renderer, const bool statsSleep) {
+  const auto content = CalibratedThemeLayout::sleep(renderer, MinimalMetrics::values.homeTopPadding);
+  return coverImageRectForFrame(coverRectForScreen(renderer, content, statsSleep && gpio.deviceIsX3()));
+}
+
 void MinimalTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                                        int selectorIndex, bool& coverRendered, bool& coverBufferStored,
                                        bool& bufferRestored, const std::function<bool()>& storeCoverBuffer,
@@ -708,24 +786,30 @@ void MinimalTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const s
   (void)globalStats;
   (void)currentChapterTitle;
 
-  const Rect coverRect = coverRectForScreen(renderer, rect);
+  const Rect content = CalibratedThemeLayout::content(renderer, rect, true);
+  const Rect coverRect = coverRectForScreen(renderer, content);
+  if (coverRect.width <= 0 || coverRect.height <= 0) return;
   if (recentBooks.empty()) {
     renderer.drawRoundedRect(coverRect.x, coverRect.y, coverRect.width, coverRect.height, 1, kCoverCornerRadius, true);
 
     const MinimalQuote& quote = kQuotes[selectedQuoteIndex()];
     constexpr int quotePadding = 18;
     const int textW = coverRect.width - quotePadding * 2;
-    auto lines = renderer.wrappedText(UI_12_FONT_ID, quote.text, textW, 6);
-    int lineY = coverRect.y + 88;
+    const int authorY = coverRect.y + coverRect.height - std::min(110, coverRect.height / 5);
+    int lineY = coverRect.y + std::min(88, coverRect.height / 6);
     const int lineH = renderer.getLineHeight(UI_12_FONT_ID);
+    const int maxLines = std::max(0, std::min(6, (authorY - lineY - lineH) / lineH));
+    auto lines =
+        maxLines > 0 ? renderer.wrappedText(UI_12_FONT_ID, quote.text, textW, maxLines) : std::vector<std::string>{};
     for (const auto& line : lines) {
       renderer.drawText(UI_12_FONT_ID, coverRect.x + quotePadding, lineY, line.c_str());
       lineY += lineH;
     }
 
-    const int authorW = renderer.getTextWidth(UI_10_FONT_ID, quote.author, EpdFontFamily::ITALIC);
-    renderer.drawText(UI_10_FONT_ID, coverRect.x + coverRect.width - quotePadding - authorW,
-                      coverRect.y + coverRect.height - 110, quote.author, true, EpdFontFamily::ITALIC);
+    const auto author = renderer.truncatedText(UI_10_FONT_ID, quote.author, textW, EpdFontFamily::ITALIC);
+    const int authorW = renderer.getTextWidth(UI_10_FONT_ID, author.c_str(), EpdFontFamily::ITALIC);
+    renderer.drawText(UI_10_FONT_ID, coverRect.x + coverRect.width - quotePadding - authorW, authorY, author.c_str(),
+                      true, EpdFontFamily::ITALIC);
     coverRendered = false;
     coverBufferStored = false;
     return;
@@ -745,9 +829,9 @@ void MinimalTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBook
                                    const float progressPercent, const bool inverted) const {
   renderer.clearScreen(inverted ? 0xFF : 0x00);
 
-  const Rect contentRect{0, MinimalMetrics::values.homeTopPadding, renderer.getScreenWidth(),
-                         MinimalMetrics::values.homeCoverTileHeight};
+  const Rect contentRect = CalibratedThemeLayout::sleep(renderer, MinimalMetrics::values.homeTopPadding);
   const Rect coverRect = coverRectForScreen(renderer, contentRect);
+  if (coverRect.width <= 0 || coverRect.height <= 0) return;
   drawBookCover(renderer, coverRect, book, inverted ? Color::White : Color::Black);
   drawProgressBlock(renderer, coverRect, stats, progressPercent, !inverted);
 }
@@ -755,56 +839,66 @@ void MinimalTheme::drawSleepScreen(const GfxRenderer& renderer, const RecentBook
 void MinimalTheme::drawStatsSleepScreen(const GfxRenderer& renderer, const RecentBook& book,
                                         const BookReadingStats* stats, const GlobalReadingStats* globalStats,
                                         const float progressPercent, const bool inverted) const {
-  drawSleepScreen(renderer, book, stats, progressPercent, inverted);
-  if (globalStats != nullptr) {
-    const Rect contentRect{0, MinimalMetrics::values.homeTopPadding, renderer.getScreenWidth(),
-                           MinimalMetrics::values.homeCoverTileHeight};
-    const Rect coverRect = coverRectForScreen(renderer, contentRect);
-    drawStatsOverlay(renderer, *globalStats, coverRect, progressPercent, inverted);
-  }
+  renderer.clearScreen(inverted ? 0xFF : 0x00);
+  const Rect content = CalibratedThemeLayout::sleep(renderer, MinimalMetrics::values.homeTopPadding);
+  const bool showStats = globalStats != nullptr && gpio.deviceIsX3();
+  const Rect coverRect = coverRectForScreen(renderer, content, showStats);
+  if (coverRect.width <= 0 || coverRect.height <= 0) return;
+  drawBookCover(renderer, coverRect, book, inverted ? Color::White : Color::Black);
+  drawProgressBlock(renderer, coverRect, stats, progressPercent, !inverted);
+  if (showStats) drawStatsOverlay(renderer, *globalStats, coverRect, inverted);
 }
 
 void MinimalTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                   const std::function<const char*(int index)>& buttonLabel,
                                   const std::function<UIIcon(int index)>& rowIcon) const {
+  // The menu places itself in the screen's free space, the same way buttonMenuPanelRect()
+  // reports it to HomeActivity's tap test, so the caller's rect is not used.
   (void)rect;
-  (void)rowIcon;
 
   if (buttonCount <= 0) {
     return;
   }
 
-  const Rect panel = buttonMenuPanelRect(renderer, buttonCount);
-  const int panelX = panel.x;
-  const int panelY = panel.y;
-  const int panelW = panel.width;
-  const int panelH = panel.height;
+  const MenuGrid grid = menuGrid(renderer, buttonCount);
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, !gpio.hasTouch(), false);
+  const int titleY = kTitleRowTop + UITheme::getTopStatusBarInset(renderer);
+  renderer.drawText(UI_12_FONT_ID, safe.x + kMargin, titleY, tr(STR_MENU), true, EpdFontFamily::BOLD);
+
+  const int pageItems = grid.pageItems();
+  const int pages = (buttonCount + pageItems - 1) / pageItems;
+  const int page = std::clamp(selectedIndex, 0, buttonCount - 1) / pageItems;
+  if (pages > 1) {
+    const int dotTop = titleY + 17 - kMenuDotRadius;
+    const int dotSize = 2 * kMenuDotRadius + 1;
+    int left = safe.x + safe.width - kMargin - dotSize;
+    for (int i = pages - 1; i >= 0; i--, left -= kMenuDotPitch) {
+      if (i == page) {
+        renderer.fillRoundedRect(left, dotTop, dotSize, dotSize, kMenuDotRadius, Color::Black);
+      } else {
+        renderer.drawRoundedRect(left, dotTop, dotSize, dotSize, 1, kMenuDotRadius, true);
+      }
+    }
+  }
+
   const auto scale = uiScaleSpec();
   freeink::ui::GfxRendererFrame<1> ui(renderer, scale.smallFontId, scale.bodyFontId, scale.titleFontId);
   freeink::ui::TextStyle labelText = uiThemeTokens(ui.target).bodyText;
   labelText.align = freeink::ui::TextAlign::Center;
-  labelText.maxLines = 1;
-  renderer.drawRoundedRect(panelX, panelY, panelW, panelH, 1, kMenuPanelRadius, true);
+  labelText.bold = true;
+  labelText.maxLines = kMenuLabelLines;
 
-  const int pageItems = std::max(1, (panelH - 2) / kMenuRowHeight);
-  const int first = std::max(0, selectedIndex) / pageItems * pageItems;
+  const int first = page * pageItems;
   for (int i = first; i < std::min(buttonCount, first + pageItems); ++i) {
-    const int rowY = panelY + 1 + (i - first) * kMenuRowHeight;
-    TouchRegistry::getInstance().add(Rect{panelX, rowY, panelW, kMenuRowHeight}, i, TouchRegistry::Item);
+    const Rect tile = menuTileRect(grid, buttonCount, i);
+    TouchRegistry::getInstance().add(tile, i, TouchRegistry::Item);
+    renderer.drawRoundedRect(tile.x, tile.y, tile.width, tile.height, 1, kTileRadius, true);
     if (i == selectedIndex) {
-      const int triangleX = panelX + kMenuSelectionTriangleInset;
-      const int triangleCenterY = rowY + kMenuRowHeight / 2;
-      const int triangleHalfH = kMenuSelectionTriangleHeight / 2;
-      const int triangleXPoints[3] = {triangleX, triangleX, triangleX + kMenuSelectionTriangleWidth};
-      const int triangleYPoints[3] = {triangleCenterY - triangleHalfH, triangleCenterY + triangleHalfH,
-                                      triangleCenterY};
-      renderer.fillPolygon(triangleXPoints, triangleYPoints, 3, true);
+      renderer.drawRoundedRect(tile.x - kRingOutset, tile.y - kRingOutset, tile.width + 2 * kRingOutset,
+                               tile.height + 2 * kRingOutset, kRingWidth, kTileRadius + kRingOutset, true);
     }
-
-    const char* label = buttonLabel != nullptr ? buttonLabel(i) : "";
-    if (!label) label = "";
-    ui.target.text(freeink::ui::Rect{static_cast<int16_t>(panelX), static_cast<int16_t>(rowY),
-                                     static_cast<int16_t>(panelW), static_cast<int16_t>(kMenuRowHeight)},
-                   label, labelText);
+    const char* label = buttonLabel != nullptr ? buttonLabel(i) : nullptr;
+    drawMenuTileContent(renderer, ui.target, tile, label != nullptr ? label : "",
+                        rowIcon != nullptr ? menuIcon(rowIcon(i)) : nullptr, labelText);
   }
 }

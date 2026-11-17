@@ -41,6 +41,7 @@
 #include "components/icons/listIcons.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
+#include "network/ReadingSyncUpload.h"
 #include "sync/BookSyncFile.h"
 #include "sync/SyncIds.h"
 #include "sync/SyncPending.h"
@@ -593,7 +594,9 @@ void FileBrowserActivity::showDirectoryActionMenu(const std::string& entry, bool
   std::vector<FileBrowserActionActivity::MenuItem> items;
   items.push_back({useDefaultFolders ? FileBrowserAction::ClearSleepFolder : FileBrowserAction::SetSleepFolder,
                    useDefaultFolders ? StrId::STR_USE_DEFAULT_SLEEP_FOLDERS : StrId::STR_SET_AS_SLEEP_FOLDER});
-  items.push_back({FileBrowserAction::UploadFolderProgress, StrId::STR_FOLDER_SYNC});
+  if (ReadingSyncUpload::syncEntriesOffered()) {
+    items.push_back({FileBrowserAction::UploadFolderProgress, StrId::STR_FOLDER_SYNC});
+  }
   items.push_back({FileBrowserAction::Delete, StrId::STR_DELETE});
 
   startActivityForResult(std::make_unique<FileBrowserActionActivity>(renderer, mappedInput, getFileName(entry),
@@ -1174,7 +1177,17 @@ void FileBrowserActivity::activateSelected() {
 }
 
 void FileBrowserActivity::loop() {
-  if (TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+  // Edge Back takes priority over the row-delete handler, which consumes horizontal swipes.
+  if (mappedInput.wasLeftEdgeGesture() || TouchHeaderBackButton::wasTapped(mappedInput, renderer)) {
+    {
+      RenderLock lock(*this);
+      // The parent reuses this app; release the row touched before the swipe.
+      fui::InputSnapshot cancel{};
+      cancel.touchReleased = true;
+      cancel.touchX = cancel.touchY = -1;
+      app.route(cancel);
+      app.clearTapFlash();
+    }
     navigateBack();
     return;
   }

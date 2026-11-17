@@ -6,14 +6,25 @@ nav_order: 2
 # Touch Navigation
 
 This page covers how to get around CrossInk with your fingers on touchscreen
-devices (Sticky and X4 Pro). For turning pages and other gestures while reading,
+devices (including Sticky, X4 Pro, and EEGO). For turning pages and other
+gestures while reading,
 see [Controls](./controls.md) and
 [Touch Reader Controls](./user-guide.md#touch-reader-controls).
 
 Tap anything on screen to select or open it. In long lists, swipe up or down to
 move through the list.
 
+## Restoring touch on EEGO
+
+If you turn off the EEGO touchscreen, restarting the device re-enables it
+automatically. Up + Down is reserved for EEGO's hardware reset, so it is not
+available as a shortcut or Quick Actions trigger. Other devices keep their
+existing touchscreen and Up + Down behavior.
+
 ## Home-screen swipes
+
+The **BookOrbit** theme has its own gestures: see
+[BookOrbit Home](./reader-features.md#bookorbit-home).
 
 The **Dashboard** and **Minimal** Home screens have swipe shortcuts. Start the
 swipe on the main part of the Home screen. You do not need to start at the edge.

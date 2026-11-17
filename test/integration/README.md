@@ -24,7 +24,10 @@ push and on CI.
 - **Library**: [seed/make_library.py](seed/make_library.py) generates ~100
   EPUB variants from `test/epubs/` fixtures (unique title/author/uuid, and a
   verified-unique KOReader partial-MD5 each, since BookOrbit identifies books
-  by content) into `library/`, the local reference copy. The seeder copies
+  by content) into `library/`, the local reference copy. Every book except
+  each 10th embeds a generated PNG cover, which the server extracts on
+  ingestion: the BookOrbit Home scenarios decode those thumbnails, and the
+  coverless books keep the placeholder path covered. The seeder copies
   them into the book-dock volume — the dock consumes its files on finalize.
 - **Seed**: [seed/seed.py](seed/seed.py) bootstraps the server (setup token →
   user → KOReader sync credentials), waits for the library ingestion, then
@@ -79,6 +82,22 @@ python3 test/integration/harness/run_scenarios.py --scenario sync_progress_pull 
 `docker compose ... down -v` resets the server completely; `seed.py` starts
 from a database it recognizes as already seeded without duplicating anything.
 
+### A real device against this server
+
+[device_kit.py](device_kit.py) builds an SD-card kit for one heavy sync: a
+generated 20-chapter book with 100 local highlights and 600 reading events to
+upload, and 60 highlights from another device on the server to pull. With
+`--start-caddy` it puts Caddy (internal TLS, the Go TLS stack behind #96) in
+front of the server on this Mac's LAN address. `--mac` also writes the
+`bookorbit.json` for that device; without it, enter the printed server, user
+and password on the device. Once a device has synced a book, take the next
+`--variant`.
+
+The simulator reaches Caddy only with its CA, since its HTTP goes through
+`curl`, which verifies certificates where the firmware does not:
+`docker cp crossink-kit-caddy:/data/caddy/pki/authorities/local/root.crt .`
+then `CURL_CA_BUNDLE=root.crt`.
+
 ## Continuous integration
 
 The `integration` job in [ci.yml](../../.github/workflows/ci.yml) runs the same
@@ -109,17 +128,23 @@ that spelling to the step's markers.
 | `sleep_sync_cancel` | A Power press during the sleep sync cancels it and boots the device the way a power-button wake does. |
 | `highlight_pull` | A highlight created by the peer device lands in the local clipping store, with a minted position record. |
 | `highlight_push` | A pre-seeded local highlight (clipping + position record, what the reader persists) reaches the server and is offered to a device that never saw it. |
+| `highlight_push_backlog` | Twenty local highlights, listed out of datetime order, reach the server in one sync (batches of 8 on one session), and the watermark ends on the newest. |
+| `highlight_pull_backlog` | Twenty highlights from the peer reach the device in one sync: each acknowledged batch of 8 makes room for the next pull. |
+| `highlight_delete_propagates_large` | On a book of 80 highlights, past the 64 a key set used to be held to, deleting two on the device deletes them on the server, and the summary counts them. |
 | `highlight_mint_outside_paragraph` | Highlights saved without a position (what the reader left before the #84 fix) in a heading, a list item and a control `<p>` are positioned by the reader itself, one per wake into their chapter, and reach the server at their exact text node. The heading precedes every `<p>`, so its paragraph hint is 0: the old resolver rejected it, and retrying it on every visit starved the other two. The `<p>` keeps the position the `<p>`-only resolver gave it. |
 | `highlight_delete_propagates` | Two runs on one SD: pull a highlight, delete its clipping locally, sync again — the complete key set deletes it server-side. |
 | `highlight_delete_guard` | Same, but with the sync-state store lost between runs: the guard reports no key set and the server keeps the highlight. |
 | `bookmark_pull` | A bookmark created by the peer lands in the local bookmark store, with a minted position record. |
 | `bookmark_push` | A pre-seeded local bookmark reaches the server and is offered to a device that never saw it. |
 | `catalog_collections_browse` | Scripted UI navigation: home menu → BookOrbit catalog → Collections → the seeded collection; asserted through the browser's list cache. Browsing never silent-reboots before exit, so input scripts drive it end to end; only a download restarts (see below). |
-| `catalog_empty_listing_back` | Opening the seeded empty collection shows the no-entries error; Back climbs out of it and the next listing still loads (regression: Back reloaded the same empty listing forever). |
+| `catalog_empty_listing_back` | Opening the seeded empty collection shows the no-entries error; Back climbs out of it onto the row it left, and the next listing still loads (regression: Back reloaded the same empty listing forever). |
 | `catalog_libraries_browse` | Libraries as a browsable root section: its listing carries the seeded library's book count, opening it lists that library's books (cache key carries the library id), and the root's per-section counts (dashboard fetch) are cached. |
 | `catalog_hides_non_epub` | Continue reading and Recently added list only EPUBs: the audiobook-only record is absent, the EPUB+audio record stays, and the root's two book counts equal those listings' totals rather than the dashboard's all-format ones. Continue reading lists only books being read. Expected numbers come from the server's own filtered listings. |
 | `catalog_download_naming` | A download lands where the account's KOReader file naming template says, folders created on the way, instead of a flat `Title - Author.epub`. The expected path is the `devicePath` the server itself resolved for the book the browser listed first, so the test never reimplements the template. The simulator's X4 profile has no PSRAM, so the download restarts into a network boot of its own first, like an X3/X4 does (issue #96): the run checks that hand-over, that the transfer ran in the new boot and that it left no resume file behind. A second run then proves "On device" still counts the book, which it can only do from the download index. |
 | `catalog_book_actions` | Four runs on one card around the first book of All books. Holding Confirm opens a menu whose only entry, Download, fetches the book. Once the book is on the device, Re-download replaces it where it is and keeps its reading progress; the book is damaged first, at the same size, so the check can tell the copies apart. A plain Confirm then opens the book in the reader rather than downloading it again, and Delete removes it along with its cache. Each menu choice is checked against the action the firmware logs, since a hold that simply downloaded on release would otherwise pass. |
+| `catalog_deep_listing` | Issue #96: All books (five pages) walked to page 4 with Next presses, the selected book downloaded, then 45 Previous presses in the download boot. The rows in memory never exceed three pages, the download fetches the book the selection was on, the restored window holds its row (pages 3 and 4 only), and walking back puts page 2 in front of the window from the list cache. Asserted through the firmware's per-page log line. |
+| `catalog_sort_filter` | All books sorted by date added (Left), its direction flipped (the picker's first row) and filtered to the books being read (Right), then the first book downloaded. Each listing matches the server's answer to the same `sort`/`order`/`readStatus` query, the download is that listing's first book, and the download boot rebuilds that exact listing from the list cache. Sorted by date because the seeded books carry no title, author or series metadata. |
+| `catalog_sections_and_shelf` | The data behind the list sections and the Want to Read shelf. Two books are marked want to read first. All books keeps, with its first page, where each letter starts as the server ranks it; Recently added keeps each book's date added; the root's Want to Read row counts the server's shelf and lists exactly it. The headings drawn from that data are checked on screen. |
 
 ### Repeatability
 

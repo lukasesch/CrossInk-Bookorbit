@@ -2,7 +2,7 @@
 
 Everything else — fonts, themes, reader features, reading stats, controls, the web server — comes from CrossInk unchanged, with one exception: KOReader Sync is removed to make room (see below). See the [upstream README](https://github.com/uxjulia/CrossInk#readme) for those, and the [docs](./docs/) folder in this repository for the detailed guides.
 
-**Note**: this fork publishes releases for the Xteink X3, X4, X4 Pro and X4 Classic, and the Seeed reTerminal Sticky. The BOOX Picco, which CrossInk v2.0.0 supports officially ([BOOX Picco](./docs/picco.md)), has a `picco` build here that can be built from source; this fork publishes no release for it (see [installation](./docs/installation.md#boox-picco)).
+**Note**: this fork publishes releases for the Xteink X3, X4, X4 Pro and X4 Classic, the Seeed reTerminal Sticky, the BOOX Picco ([BOOX Picco](./docs/picco.md), [installation](./docs/installation.md#boox-picco)) and the EEGO Reader A4.
 
 ---
 
@@ -10,13 +10,31 @@ Everything else — fonts, themes, reader features, reading stats, controls, the
 
 - **BookOrbit progress sync** — sync your reading position with a self-hosted BookOrbit server.
 - **BookOrbit highlight and bookmark sync** — two-way: what you highlight or bookmark on the device appears in the web reader at its exact place in the text, what you add on the web lands in the book, and deletions propagate both ways.
+- **A BookOrbit Home theme** — Home as pages of tiles modeled on BookOrbit's dashboard: the current book, streak, week and yearly goal, the catalog's shelves with their covers, and a year of reading. Opening it never waits on the network: a sync keeps it up to date, and without an account it runs on your own numbers.
 - **BookOrbit catalog browser** — browse your server's library on the device and download EPUBs over WiFi, including by author, series or collection.
 - **Offline shortcuts to your own books** — "On device" and "In progress" categories that open a book directly, without touching the network.
 - **Reading statistics pushed to BookOrbit** — your reading time, streaks and pace on the server's dashboard, fed by the pages you turn on the device.
 - **A working clock on the X4** — the status-bar clock, which upstream can only show on hardware that has a clock chip, plus an opt-in mode that keeps the time running through sleep.
-- **KOReader Sync is removed** — its screens, settings and shortcut are gone. The X3/X4 firmware gets a 6.5 MB partition, and this fork's BookOrbit layer plus CrossInk's own growth stopped fitting in it; dropping the second sync provider is what buys the room. Credentials already saved on the SD card are left alone, simply unread.
+- **KOReader Sync is removed** — CrossInk v2.0.0 renamed it Sync Server and added reading-stats and clippings sync to it; its screens, settings, shortcut and sync actions (Sync Book, Sync Folder, Sync Books) are gone. The X3/X4 firmware gets a 6.5 MB partition, and this fork's BookOrbit layer plus CrossInk's own growth stopped fitting in it; dropping the second sync provider is what buys the room. Credentials already saved on the SD card are left alone: an account set up before the removal keeps the sync actions, but cannot be changed on the device.
+- **No OPDS browser on the X3 and X4** — CrossInk v2.0.0's later changes no longer fit in that same partition alongside BookOrbit, so the X3/X4 firmware leaves out the OPDS browser, its settings and its web settings section; the BookOrbit catalog covers the same need. Saved OPDS servers stay on the SD card. The X4 Pro, X4 Classic, Sticky, Picco and EEGO A4 keep OPDS.
 
 BookOrbit exposes a KOReader-compatible sync API, so this fork talks to it the same way the official BookOrbit KOReader plugin does. Your BookOrbit server must be recent enough to serve the KOReader plugin endpoints under `{server}/api/v1/koreader` — including `plugin/catalog/*` for the catalog browser and `plugin/annotations/*` / `plugin/bookmarks/*` for highlight and bookmark sync (servers without those are detected, and the missing steps are simply skipped).
+
+---
+
+## The BookOrbit Home theme
+
+![The BookOrbit Home theme's three pages on an Xteink X4: Home with the current book, streak, week, yearly goal and other books being read; Library with the catalog's Discover and Recently Added shelves and what is on the card; Statistics with a year of reading, a finish date, reading moments, totals and a highlight of the day](docs/images/bookorbit-home/overview.png)
+
+Choose **BookOrbit** in **Settings → Display → UI Theme**, and Home becomes three pages of tiles modeled on BookOrbit's own dashboard:
+
+- **Home** — the current book with its chapter, progress and time left (Confirm resumes it), your streak, this week's reading, your yearly goal, the BookOrbit tile that refreshes everything, and the other books you are reading, on this device or another one.
+- **Library** — the catalog's Discover and Recently Added shelves, links to the catalog, its authors and its series, and what is on the card: how many books, how many came from BookOrbit, and how full the card is. A book that is not on the card yet downloads from its cover, and Home comes back once it is done.
+- **Statistics** — a year of reading, one square a day, when you will finish the current book, the times and days you read, your all-time totals, the next badge and a highlight of the day.
+
+Left and Right turn pages, Up and Down move between tiles; on touch devices, swipe between pages and tap a tile. Opening Home never waits on the network: Sync on Sleep or the BookOrbit tile bring the server's numbers, reading done on the device counts straight away, and without an account the theme runs on your own numbers. The [reader features guide](docs/reader-features.md#bookorbit-home) has the details.
+
+_Screenshots taken in the simulator, with public-domain books from [Standard Ebooks](https://standardebooks.org)._
 
 ---
 
@@ -112,14 +130,15 @@ server, in both directions:
   first time you jump to it.
 
 Nothing to enable: if an account is configured, both ride along with every sync, and
-the sync screen reports what each exchange did ("Highlights: 2 sent, 1 added, 0
-removed"). Book matching is the same binary hash as progress sync, so the same EPUB
+the sync screen reports what each exchange did: highlights received from the server
+and sent to it, each counted as added and deleted ("Received: 1 added, 0 removed"). Book matching is the same binary hash as progress sync, so the same EPUB
 file has to be on both sides.
 
 Details worth knowing:
 
-- New highlights upload in batches of 8 per sync — this hardware bounds what fits
-  beside an open TLS connection — so a large backlog drains over a few syncs.
+- Highlights travel 8 per request — this hardware bounds what fits beside an open TLS
+  connection — and a sync sends as many requests as the backlog needs, both ways: one
+  sync sends every new highlight and brings down every one added on the web.
 - Highlights and bookmarks made before this feature existed gain their sync identity
   progressively as you read, one chapter per visit, and start syncing from there.
 - A highlight's stored text is capped at 4 KB; an extremely long web highlight is drawn
@@ -127,8 +146,8 @@ Details worth knowing:
 - The device draws every highlight the same way. Notes, colors and styles added on the
   web stay on the server, and a highlight that came from the server is never sent back.
 - BookOrbit 3.5.0 tracks highlights per book file rather than per device, so after the
-  server is upgraded, the first syncs of each book receive back every highlight it
-  already had, 8 per sync. They are recognized and nothing is duplicated.
+  server is upgraded, the first sync of each book receives back every highlight it
+  already had. They are recognized and nothing is duplicated.
 - With BookOrbit 3.5.0 or later, a book that lost all its highlights or bookmarks on the
   device (a wiped card, say) gets them back from the server at its next sync.
 
@@ -198,6 +217,7 @@ The root list contains:
 | Recently added / Continue reading / All books | Your server's own sections                                                                                                                          |
 | **Authors** / **Series**                      | Paged lists with a book count per entry; pick one to see its books (series are listed in series order)                                              |
 | **Collections**                               | Your server's collections, with a book count per entry; pick one to see its books                                                                   |
+| **Want to Read**                              | The books you most recently marked as want to read, when your server offers that shelf                                                             |
 | **Search**                                    | Free-text search of your library                                                                                                                    |
 | **On device**                                 | Everything downloaded from the catalog, wherever it was filed, plus every EPUB in the download folder, the SD card root and `/Read` — works offline |
 | **In progress**                               | Recent books you haven't finished yet — works offline                                                                                               |
@@ -206,7 +226,20 @@ In a server book list, **Confirm** downloads the book into the download folder c
 
 The file is named by **your server's KOReader file naming template** — BookOrbit's _Settings → Koreader → File Naming_, the same template its own KOReader plugin follows — so a book can land inside a series folder, for instance. BookOrbit resolves the template and tells the device where the file belongs; a per-device override set on the server is honoured too, and any folder it asks for is created under your download folder. If your account has no template, BookOrbit's default applies, which files books under `Series/` and `Standalone/`. Books downloaded before this behaviur existed are left where they are.
 
+A server book list (a root section, the books of an author, series, collection, library or SmartScope, or search results) can be sorted and filtered, as the Library is sorted:
+
+- **Sort** — date added, title, author (by last name), recently read or series. The first row of the picker flips the direction (A-Z or Z-A); a newly picked order starts in its natural direction, newest first for dates.
+- **Filter** — all books, or only those that are unread, being read or finished on your BookOrbit account. The header then names the filter, and its count is the number of matching books.
+
+On the X3 and X4, **Left** opens Sort and **Right** opens Filter while **Up** and **Down** move through the list, as in the Library. On touch devices, the two buttons at the right of the header open them. Your server does the sorting and filtering, so a long list keeps paging exactly. The choice applies to the list you are in; opening a section again shows it in its own order.
+
+When the Library's **List View** is **Expanded**, a book list is split into sections the way the Library splits its own: by first letter when sorted by title or author (where your server ranks it, by the author's last name), by day when sorted by date added, and by series when sorted by series. The second row of the Sort picker switches the List View between Expanded and Compact without leaving the catalog; it is the Library's setting, so the Library follows.
+
+**Want to Read** lists the books you most recently marked as want to read in BookOrbit: the shelf BookOrbit's own KOReader plugin shows, a dozen books at most, in the order you marked them. It appears after the server's sections when your server offers that shelf. BookOrbit's catalog cannot filter a whole list by that status, so it is a shelf rather than a filter choice.
+
 In **On device** and **In progress**, Confirm opens the book in the reader instead of downloading it.
+
+On the X3 and X4, the reader restarts briefly before it opens the catalog and before each download, so the secure connection gets the memory it needs; leaving the catalog restarts it once more. A long listing keeps only the pages around the one on screen in memory and reloads the others from the SD card as you scroll back.
 
 > If the catalog reports _"BookOrbit sent an unexpected reply"_, the server answered but not with the catalog API — usually a BookOrbit version without the KOReader catalog endpoints, a wrong server URL, or a reverse proxy/SSO layer intercepting `/api/v1/koreader/plugin/*`.
 
@@ -256,7 +289,11 @@ It also decides how faithful your uploaded reading-session timestamps are — se
 
 Download the `firmware-*.bin` for your device from **this repository's** [releases page](https://github.com/agosez/CrossInk-Bookorbit/releases) — not upstream's, which does not include BookOrbit support. CrossInk's own web installer only offers upstream builds, so flash the file as a custom firmware with the [CrossPoint flash tools](https://crosspointreader.com/#flash-tools), from the command line, or from the SD card — [Installation](./docs/installation.md) walks through each path, including USB-locked devices and reverting to upstream CrossInk.
 
-Once this firmware is installed, **Settings → System → Check for Updates** resolves against this fork's releases, so later versions arrive over the air. Devices running upstream CrossInk will not see these releases: the first install has to be done by USB or SD card.
+Once this firmware is installed, **Settings → System → Check for Updates** resolves against this fork's releases, so later versions arrive over the air. Devices running upstream CrossInk will not see these releases: the first install has to be done by USB or SD card. Picco is the exception: it has no over-the-air or SD card update, so every version goes through the USB steps in [Installation](./docs/installation.md#boox-picco), which keep its factory recovery software.
+
+### Languages
+
+Since CrossInk v2.0.0 only English is built into the firmware. This fork publishes its own language packs, translated in full including the BookOrbit screens: choose **Settings → System → Device → Download Languages**, connect to Wi-Fi and pick a language, and the reader installs it and restarts to Home. After updating from an earlier version, What's New offers to download the language you were using. Without Wi-Fi, take `crossink-languages-<version>.zip` from the same release as the firmware, copy its `.crossink` folder to the root of the SD card, then pick the language in **Settings → System → Device → Language**. Upstream's packs do not fit this fork: they lack its screens.
 
 ## Development
 

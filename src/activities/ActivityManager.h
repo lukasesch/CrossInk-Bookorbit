@@ -24,7 +24,8 @@ struct portMUX_TYPE {};
   }
 #endif
 
-class Activity;    // forward declaration
+class Activity;  // forward declaration
+struct BookOrbitCatalogLink;
 class RenderLock;  // forward declaration
 
 #if CROSSINK_APP_CAP_TOUCH
@@ -80,6 +81,8 @@ class ActivityManager {
 #endif
 
   void exitActivity(const RenderLock& lock);
+  // Apply navigation and render requests without polling the outgoing activity.
+  void processPendingActivities();
 
   // Pending activity to be launched on next loop iteration
   std::unique_ptr<Activity> pendingActivity;
@@ -112,6 +115,9 @@ class ActivityManager {
   // with requestUpdateAndWait(), but stale/asynchronous notifications must wait.
   bool enteringActivity = false;
   bool entryRenderRequested = false;
+#if CROSSINK_APP_CAP_TOUCH
+  bool touchHardwareAvailable = false;
+#endif
   void enterCurrentActivity();
   static void renderTaskTrampoline(void* param);
   [[noreturn]] virtual void renderTaskLoop();
@@ -168,11 +174,16 @@ class ActivityManager {
   void goToFileBrowser(std::string path = {});
   void goToLibrary();
   void goToBrowser();
-  void goToPlugins();
+  bool goToPlugins(bool networkBootReady = false);
   bool goToOpdsServer(uint32_t serverIndex, bool networkBootReady = false);
-  // resumeDownload: the BOOKORBIT_DOWNLOAD network boot, running the download the
-  // catalog restarted for. False only when the browser could not be allocated.
-  bool goToBookOrbitCatalog(bool resumeDownload = false);
+  // networkBootReady: called from the catalog's own minimal network boot; otherwise the
+  // X3 and X4 restart into one first. resumeDownload: the BOOKORBIT_DOWNLOAD boot, running
+  // the download the catalog restarted for. False only when the browser could not be
+  // allocated.
+  bool goToBookOrbitCatalog(bool networkBootReady = false, bool resumeDownload = false);
+  // Enters the catalog at one book, which it downloads, or at a drill-down section. On the
+  // X3 and X4 the link waits on the SD card through the catalog's network boot.
+  bool goToBookOrbitCatalog(BookOrbitCatalogLink link);
   void goToBookOrbitAuth();
   void goToReader(std::string path, bool suppressBackRelease = false, bool allowFastInitialRefresh = false,
                   bool cleanImageBaseOnEntry = false, bool keepWakeFrame = false);

@@ -19,6 +19,7 @@ spec = importlib.util.spec_from_file_location('publisher', ROOT / 'scripts/publi
 publisher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publisher)
 import export_github_language_assets as github_export
+import export_pages_language_assets as pages_export
 
 
 def bundle(source='a', keyset='b', revision='c', text=b'French', channel='stable', kind='translation'):
@@ -289,6 +290,95 @@ class GitHubExportTest(unittest.TestCase):
                 self.assertEqual((output / name).read_bytes(), data)
 
 
+class PagesExportTest(unittest.TestCase):
+    """This fork's gh-pages tree uses the device catalog paths, not GitHub's Inky layout."""
+
+    def export(self, output, bundles):
+        files, catalogs = pages_export.plan(output, bundles)
+        pages_export.write(output, files)
+        pages_export.write(output, catalogs)
+        return catalogs
+
+    def test_writes_snapshots_and_device_catalog_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            bundles = [bundle(), bundle(kind='hyphenation', revision='e')]
+            catalogs = self.export(output, copy.deepcopy(bundles))
+            self.assertEqual(set(catalogs), {publisher.catalog_key(catalog) for catalog, _ in bundles})
+            self.assertIn(f"catalogs/stable/translation/{'a' * 64}/{'b' * 64}.json", catalogs)
+            for _, files in bundles:
+                for name, data in files.items():
+                    self.assertEqual((output / name).read_bytes(), data)
+
+    def test_republication_keeps_old_snapshot_and_previous_checksum(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            self.export(output, [bundle()])
+            old_files = bundle()[1]
+            key = self.export(output, [bundle(text=b'French v2', revision='d')]).popitem()[0]
+            entry = json.loads((output / key).read_bytes())['entries'][0]
+            self.assertEqual(entry['sha256'], publisher.sha(b'French v2'))
+            self.assertEqual(entry['previous'], publisher.sha(b'French'))
+            for name, data in old_files.items():
+                self.assertEqual((output / name).read_bytes(), data)
+
+    def test_collision_aborts_before_writing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            key = self.export(output, [bundle()]).popitem()[0]
+            before = (output / key).read_bytes()
+            # Same snapshot path, different bytes: an earlier release's notices were rewritten.
+            catalog, files = bundle()
+            notice_path = next(name for name in files if name.endswith('source/notice.txt'))
+            notice = b'Rewritten notices'
+            ref = {'path': notice_path, 'bytes': len(notice), 'sha256': publisher.sha(notice)}
+            files[notice_path] = notice
+            for name in ('notices.json', 'sources.json'):
+                files[f"snapshots/{catalog['revision']}/{name}"] = publisher.encode({'translation': {'FR': {'files': [ref]}}})
+            with self.assertRaisesRegex(RuntimeError, 'immutable snapshot collision'):
+                pages_export.plan(output, [(catalog, files)])
+            self.assertEqual((output / key).read_bytes(), before)
+
+    def test_signatures_vouch_for_each_catalog_and_its_indexes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            key = tmp / 'key.pem'
+            subprocess.run(['openssl', 'ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', str(key)],
+                           check=True, capture_output=True)
+            public = tmp / 'public.pem'
+            subprocess.run(['openssl', 'ec', '-in', str(key), '-pubout', '-out', str(public)],
+                           check=True, capture_output=True)
+            bundles = [bundle(), bundle(kind='hyphenation', revision='e')]
+            files, catalogs = pages_export.plan(tmp / 'out', copy.deepcopy(bundles))
+            envelopes = pages_export.signatures(bundles, catalogs, key)
+            self.assertEqual(set(envelopes), {name + '.sig' for name in catalogs})
+            for catalog, payloads in bundles:
+                name = publisher.catalog_key(catalog)
+                message, _, signature = envelopes[name + '.sig'].rpartition(b'signature=')
+                prefix = f"snapshots/{catalog['revision']}/"
+                self.assertEqual(message.decode().splitlines(), [
+                    'CrossInk signed asset catalog 1',
+                    'kind=' + catalog['kind'],
+                    'catalog=' + publisher.sha(catalogs[name]),
+                    'notices=' + publisher.sha(payloads[prefix + 'notices.json']),
+                    'sources=' + publisher.sha(payloads[prefix + 'sources.json']),
+                ])
+                self.assertTrue(signature.endswith(b'\n'))
+                (tmp / 'message').write_bytes(message)
+                (tmp / 'signature').write_bytes(bytes.fromhex(signature.decode()))
+                verified = subprocess.run(['openssl', 'dgst', '-sha256', '-verify', str(public), '-signature',
+                                           str(tmp / 'signature'), str(tmp / 'message')], capture_output=True)
+                self.assertEqual(verified.returncode, 0, verified.stderr)
+            self.assertNotEqual(pages_export.public_key_hex(key), pages_export.firmware_public_key())
+
+    def test_firmware_key_is_the_built_in_one_unless_a_build_overrides_it(self):
+        with patch.dict('os.environ', {}, clear=True):
+            built_in = pages_export.firmware_public_key()
+        self.assertRegex(built_in, r'^04[0-9a-f]{128}$')
+        with patch.dict('os.environ', {'CROSSINK_ASSET_CATALOG_KEY': '04' + 'ab' * 64}):
+            self.assertEqual(pages_export.firmware_public_key(), '04' + 'ab' * 64)
+
+
 class ReleaseIdentityTest(unittest.TestCase):
     def identity(self, tag='v2.0.0', channel=None, commit='1' * 40, dirty='', **changes):
         release = {'tag_name': tag, 'draft': False, 'published_at': '2026-10-23T12:00:00Z',
@@ -432,6 +522,21 @@ class ReleaseWorkflowTest(unittest.TestCase):
                 ('release_candidate.yml', 'publish-release-candidate', 'build-release-candidate')):
             with self.subTest(workflow=filename):
                 jobs = self.jobs(filename)
+                if 'prepare-language-assets' not in jobs:
+                    # This fork publishes to its gh-pages branch instead of upstream's S3.
+                    draft, gate = jobs[draft_job], jobs['publish-language-assets']
+                    channel = 'rc' if filename == 'release_candidate.yml' else 'stable'
+                    self.assertIn('publish-language-assets', self.needs(draft))
+                    self.assertIn(build_job, self.needs(gate))
+                    self.assertIn('scripts/export_pages_language_assets.py', gate)
+                    self.assertIn(f'--channel {channel}', gate)
+                    self.assertIn('git push origin HEAD:refs/heads/gh-pages', gate)
+                    self.assertIn('group: language-assets-pages', gate)
+                    self.assertIn('cancel-in-progress: false', gate)
+                    self.assertIn('scripts/package_languages.py', draft)
+                    self.assertNotIn('continue-on-error:', draft + gate)
+                    self.assertNotIn('always()', draft + gate)
+                    continue
                 draft, gate = jobs[draft_job], jobs['prepare-language-assets']
                 self.assertIn('softprops/action-gh-release@', draft)
                 self.assertIn('draft: true', draft)
@@ -468,7 +573,8 @@ class ReleaseWorkflowTest(unittest.TestCase):
             self.assertNotIn('continue-on-error:', job)
         rc = self.jobs('release_candidate.yml')
         self.assertIn('rc_tag: ${{ steps.metadata.outputs.rc_tag }}', rc['build-release-candidate'])
-        self.assertIn('RELEASE_TAG: ${{ needs.build-release-candidate.outputs.rc_tag }}', rc['prepare-language-assets'])
+        # This fork publishes RC downloads from its own job (see release_candidate.yml).
+        self.assertIn('RC_TAG: ${{ needs.build-release-candidate.outputs.rc_tag }}', rc['publish-language-assets'])
 
 
 class ReleaseBundleTest(unittest.TestCase):

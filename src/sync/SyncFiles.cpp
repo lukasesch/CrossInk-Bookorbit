@@ -193,6 +193,8 @@ void Reader::close() {
 }
 
 void removeAll(const char* path) {
+  // A book without a content-keyed store name has no sync state (see ClippingStore).
+  if (!path || !*path) return;
   const std::string base(path);
   for (const char* suffix : {"", ".bak", ".tmp"}) {
     const std::string candidate = base + suffix;

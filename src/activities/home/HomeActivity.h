@@ -3,6 +3,7 @@
 #include <ScreenInsets.h>
 
 #include <array>
+#include <atomic>
 #include <functional>
 #include <optional>
 #include <string>
@@ -16,6 +17,7 @@
 #include "activities/reader/GlobalReadingStats.h"
 #include "components/CoverGridHomeUi.h"
 #include "components/OptionPopup.h"
+#include "components/themes/bookorbit/BookOrbitHomeUi.h"
 #include "util/ButtonNavigator.h"
 
 struct RecentBook;
@@ -33,9 +35,11 @@ class HomeActivity final : public Activity {
 #ifdef SIMULATOR
   friend struct BookmarkListSmokeTest;
   friend struct PluginCatalogSmokeTest;
+  friend struct ScreenCalibrationSmokeTest;
 #endif
   ButtonNavigator buttonNavigator;
   std::unique_ptr<CoverGridHomeUi> coverGridUi;
+  std::unique_ptr<BookOrbitHomeUi> bookOrbitUi;
   bool gridHasContinueReading = false;
   int selectorIndex = 0;
   int lastCarouselBookIndex = 0;  // remembered position when leaving carousel row
@@ -44,8 +48,14 @@ class HomeActivity final : public Activity {
   // Touch menus use a momentary pressed state. Keep it separate from the
   // keyboard selection so a returned Home screen cannot retain an icon tint.
   int carouselMenuTouchDownIndex = -1;
+  // Rows per page of the Lyra home menu, as the render task last drew it; the loop's swipe
+  // paging reads it from the other task.
+  // 0 until the first render.
+  std::atomic<int> lyraMenuPageItems{0};
   bool recentsLoading = false;
   bool recentsLoaded = false;
+  // Set by the BookOrbit theme's first paint; upstream no longer tracks it for its themes.
+  bool firstRenderDone = false;
   // Silent restarts keep the panel's previous frame. The first Home paint may
   // need a clean waveform so X4 panels do not diff against a WiFi screen.
   HalDisplay::RefreshMode initialRefreshMode = HalDisplay::FAST_REFRESH;
@@ -133,11 +143,20 @@ class HomeActivity final : public Activity {
   int getVisibleRecentBookCount() const;
   bool canSwapHomeBook() const;
   void showNextRecentBookOnHome();
-  void updateHighlightedBookContext(bool allowChapterTitleRead = true);
+  // Whether the caller already holds the (non-recursive) RenderLock, as
+  // ActivityManager does around onFrontlightPanelClosed().
+  enum class RenderLockHeld : uint8_t { No, Yes };
+  void updateHighlightedBookContext(bool allowChapterTitleRead = true, RenderLockHeld lockHeld = RenderLockHeld::No);
   void loadRecentBooks(int maxBooks);
   // Returns true when Home needs a repaint for new artwork or to clear progress.
   bool loadCoverGridThumbnails();
   void activateCoverGridSelection();
+  void beginBookOrbitUi();
+  bool waitingForInitialFrontRelease();
+  void openMinimalMenu();
+  void loopBookOrbitHome();
+  void activateBookOrbitStop(const BookOrbitHomeUi::Stop& stop);
+  void loadBookOrbitThumbnails();
   void loadAllBookStats();
   void loadRecentCovers(int coverHeight);
 

@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -48,6 +49,8 @@ struct Clipping {
   uint16_t endWordIndex = 0;
   uint16_t wordCount = 0;
   uint16_t paragraphIndex = UINT16_MAX;
+  uint32_t sourceStart = UINT32_MAX;
+  uint32_t sourceEnd = UINT32_MAX;
   uint32_t timestamp = 0;
   uint32_t layoutSignature = 0;
   uint32_t textOffset = 0;
@@ -168,12 +171,18 @@ class ClippingStore {
 
   bool loadForBook(const std::string& filePath, const std::string& title, const std::string& author,
                    const std::string& bookType);
+  // loadForBook() for an EPUB, from a BookOrbit sync running beside Wi-Fi and TLS. Room for
+  // `spare` more clippings is taken in the load's one allocation, so adding that many never
+  // grows the array (doubling it needs the old and the new copy at once: 25 KB at 100
+  // clippings), and the load refuses, returning false, when the heap cannot hold the array.
+  bool loadForBookOrbitSync(const std::string& filePath, size_t spare);
   void unload();
 
   AddResult addClipping(uint16_t spineIndex, uint16_t startPage, uint16_t endPage, uint16_t pageCount,
                         uint16_t startWordIndex, uint16_t endWordIndex, uint16_t wordCount, const char* chapterTitle,
                         uint16_t paragraphIndex, const std::string& text, uint16_t tableSelection,
-                        uint32_t layoutSignature);
+                        uint32_t layoutSignature, uint32_t sourceStart = UINT32_MAX, uint32_t sourceEnd = UINT32_MAX,
+                        uint32_t timestamp = 0);
   bool removeClippingAt(size_t index);
   // Replaces one clipping's stored text (capped at CLIPPING_TEXT_MAX), rewriting the file.
   // Used when the exact source text of a highlight becomes known after the clipping was built
@@ -188,8 +197,11 @@ class ClippingStore {
   const ClippingRecords& getClippings() const { return clippings; }
   bool cacheResolvedLayoutRange(size_t index, uint16_t page, uint16_t startWord, uint16_t endWord,
                                 uint32_t layoutSignature);
+  bool cacheSourceRange(size_t index, uint32_t start, uint32_t end);
   bool readClippingText(size_t index, std::string& out) const;
   bool readClippingPreview(size_t index, std::string& out) const;
+  bool clippingTextMatchesEdges(const Clipping& clipping, std::string_view prefix, std::string_view suffix,
+                                bool& matches) const;
   bool readClippingText(const Clipping& clipping, std::string& out) const;
   // Reads at most maxBytes of the text (trimming a cut trailing UTF-8 sequence). List rows
   // show a one-line snippet, and reading a 2 KB text to display its first line -- once per
@@ -238,9 +250,11 @@ class ClippingStore {
 
   bool readTextSpan(const Clipping& clipping, uint16_t length, std::string& out) const;
   bool readKey(const Clipping& clip, std::string& key) const;
-  static bool loadForSync(const std::string& path, ClippingStore& store);
-  bool readFromFile();
-  bool readFromFile(const std::string& path, ClippingRecords& out, size_t onlyIndex = SIZE_MAX);
+  bool loadForBook(const std::string& filePath, const std::string& title, const std::string& author,
+                   const std::string& bookType, size_t spare, bool checkHeap = false);
+  static bool loadForSync(const std::string& path, ClippingStore& store, bool reserveImportSlot = false);
+  bool readFromFile(const std::string& path, ClippingRecords& out, size_t onlyIndex = SIZE_MAX, size_t spare = 0,
+                    bool checkHeap = false);
   struct UploadBinding {
     const std::string& scope;
     std::vector<std::string> legacyIds;
@@ -255,12 +269,23 @@ class ClippingStore {
   bool writeToFile(const Rewrite& rewrite);
 };
 
+inline bool clippingSourceRangeBlocked(const Clipping& clipping) {
+  return clipping.sourceStart == UINT32_MAX && clipping.sourceEnd == 0;
+}
+
+inline bool clippingHasSourceRange(const Clipping& clipping) {
+  return clipping.sourceStart < clipping.sourceEnd && clipping.sourceEnd != UINT32_MAX;
+}
+
 inline bool clippingStoredRangeMatchesLayout(const Clipping& clipping, const uint16_t currentPageCount,
                                              const uint32_t currentLayoutSignature) {
-  if (clipping.pageCount != currentPageCount) return false;
+  // Page counts describe readable prefixes during incremental pagination and
+  // cache rebuilds. The layout signature, not the prefix length, identifies
+  // existing page/word coordinates.
+  if (clipping.pageCount == 0 || currentPageCount == 0) return false;
   // Legacy records have no signature, so their body-only word ordinals cannot
-  // be trusted now that table words participate in clipping. Their saved text
-  // is used to find the highlight instead.
+  // be trusted now that table words participate in clipping. Keep their saved
+  // text available without painting a marker at a guessed position.
   return clipping.layoutSignature != 0 && currentLayoutSignature != 0 &&
          clipping.layoutSignature == currentLayoutSignature;
 }

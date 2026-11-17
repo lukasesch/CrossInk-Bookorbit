@@ -23,6 +23,7 @@
 #include "network/HttpDownloadResume.h"
 #include "network/HttpRedirectPolicy.h"
 #include "network/WifiPowerSaveGuard.h"
+#include "util/CardSpace.h"
 #include "util/UrlUtils.h"
 
 namespace {
@@ -144,8 +145,6 @@ struct Sink {
   HttpRequestDiagnostics* diagnostics = nullptr;
 };
 
-// Stands in for a hop's credential headers when that hop leaves the credential origin.
-const HttpDownloader::HeaderList kNoHeaders;
 bool acceptsBody(const Sink& sink, size_t count) {
   return HttpDownloadResume::accepts(sink.downloaded, sink.responseEnd, count) &&
          HttpDownloadResume::accepts(sink.downloaded, sink.options->maxBytes, count) &&
@@ -203,11 +202,7 @@ bool prepareResponse(Sink& sink, int status, std::string_view range, bool hasLen
 }
 
 void setRequestHeaders(esp_http_client_handle_t client, const std::string& username, const std::string& password,
-                       size_t resumeOffset, bool sendAuthorization,
-                       const HttpDownloader::HeaderList& extraHeaders = {}) {
-  for (const auto& header : extraHeaders) {
-    esp_http_client_set_header(client, header.first.c_str(), header.second.c_str());
-  }
+                       size_t resumeOffset, bool sendAuthorization) {
   esp_http_client_set_header(client, "User-Agent", AppVersion::userAgent());
   esp_http_client_set_header(client, "Connection", "close");
   if (resumeOffset > 0) {
@@ -252,8 +247,7 @@ std::string responseValidator(const freeink::SecureHttpClient& http) {
 HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::string& username,
                                             const std::string& password,
                                             const HttpRedirectPolicy::Url& credentialOrigin, const bool hasCredentials,
-                                            Sink& sink, const size_t bufferSize,
-                                            const HttpDownloader::HeaderList& extraHeaders) {
+                                            Sink& sink, const size_t bufferSize) {
   (void)bufferSize;  // SecureHttpClient owns one fixed 1024-byte streaming buffer.
   std::string currentUrl = url;
   ProgressNotifier progressNotifier(sink.progress);
@@ -264,16 +258,14 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
     if (sink.diagnostics) *sink.diagnostics = {};
     HttpRedirectPolicy::Url currentOrigin;
     const bool currentParsed = HttpRedirectPolicy::parseUrl(currentUrl, currentOrigin);
-    const bool sendCredentials =
+    const bool sendAuthorization =
         currentParsed && HttpRedirectPolicy::shouldSendAuthorization(currentOrigin, credentialOrigin, hasCredentials);
-    const bool sendAuthorization = sendCredentials && !username.empty() && !password.empty();
-    const HttpDownloader::HeaderList& hopHeaders = sendCredentials ? extraHeaders : kNoHeaders;
 
     freeink::SecureHttpClient http;
     http.setTimeout(HTTP_TIMEOUT_MS);
     http.setReserveFullRecord(sink.options->reserveFullRecord);
     // SecureNet does not yet expose ESP-IDF's CA bundle. This matches the
-    // existing KOSync transport; cross-origin hops omit all credentials.
+    // existing KOSync transport; cross-origin hops omit Basic credentials.
     http.setInsecure();
     if (!http.begin(currentUrl)) {
       LOG_ERR("HTTP", "wolfSSL rejected URL: %s", UrlUtils::forLog(currentUrl).c_str());
@@ -292,9 +284,6 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
       http.addHeader("Range", rangeHeader);
       if (!sink.validator.empty()) http.addHeader("If-Range", sink.validator);
       LOG_DBG("HTTP", "Resuming download at byte %zu", sink.resumeOffset);
-    }
-    for (const auto& header : hopHeaders) {
-      http.addHeader(header.first, header.second);
     }
     if (sendAuthorization) {
       const std::string credentials = username + ":" + password;
@@ -335,6 +324,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
         [&sink]() { return isCancelRequested(sink.cancelFlag, sink.shouldCancel); });
 
     // GET can fail after receiving headers (including a truncated 200).
+    HttpDownloader::lastHttpStatus = http.getStatus();
     if (sink.diagnostics) sink.diagnostics->status = http.getStatus();
     if (http.aborted()) return HttpDownloader::ABORTED;
     if (status == 401 || status == 403) return HttpDownloader::UNAUTHORIZED;
@@ -401,9 +391,7 @@ HttpDownloader::DownloadError runGetWolfSsl(const std::string& url, const std::s
 HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::string& username,
                                             const std::string& password,
                                             const HttpRedirectPolicy::Url& credentialOrigin, const bool hasCredentials,
-                                            Sink& sink, const size_t bufferSize,
-                                            const HttpDownloader::HeaderList& extraHeaders,
-                                            const size_t clientRxBufferSize) {
+                                            Sink& sink, const size_t bufferSize) {
   // Allocate the transfer buffer before the TLS session comes up: the handshake can leave
   // only a few KB of headroom on the ESP32-C3, and grabbing even 2KB at that point is
   // exactly the allocation that used to fail on catalog fetches.
@@ -421,16 +409,14 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
     if (sink.diagnostics) *sink.diagnostics = {};
     HttpRedirectPolicy::Url currentOrigin;
     const bool currentParsed = HttpRedirectPolicy::parseUrl(currentUrl, currentOrigin);
-    const bool sendCredentials =
+    const bool sendAuthorization =
         currentParsed && HttpRedirectPolicy::shouldSendAuthorization(currentOrigin, credentialOrigin, hasCredentials);
-    const bool sendAuthorization = sendCredentials && !username.empty() && !password.empty();
-    const HttpDownloader::HeaderList& hopHeaders = sendCredentials ? extraHeaders : kNoHeaders;
     ResponseHeaders responseHeaders;
     responseHeaders.captureDisposition = static_cast<bool>(sink.prepareDestination);
 
     esp_http_client_config_t config = {};
     config.url = currentUrl.c_str();
-    config.buffer_size = clientRxBufferSize > 0 ? clientRxBufferSize : HTTP_RX_BUF;
+    config.buffer_size = HTTP_RX_BUF;
     config.buffer_size_tx = HTTP_TX_BUF;
     config.timeout_ms = HTTP_TIMEOUT_MS;
     config.crt_bundle_attach = esp_crt_bundle_attach;
@@ -445,7 +431,7 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
       return HttpDownloader::HTTP_ERROR;
     }
 
-    setRequestHeaders(client, username, password, sink.resumeOffset, sendAuthorization, hopHeaders);
+    setRequestHeaders(client, username, password, sink.resumeOffset, sendAuthorization);
     if (sink.headers && currentParsed &&
         HttpRedirectPolicy::shouldSendAuthorization(currentOrigin, credentialOrigin, true)) {
       for (const auto& h : *sink.headers) esp_http_client_set_header(client, h.first.c_str(), h.second.c_str());
@@ -609,26 +595,20 @@ HttpDownloader::DownloadError runGetDefault(const std::string& url, const std::s
 
 HttpDownloader::DownloadError runGet(const std::string& url, const std::string& username, const std::string& password,
                                      const std::string_view authorizationOrigin, Sink& sink, const size_t bufferSize,
-                                     const HttpDownloader::Transport transport,
-                                     const HttpDownloader::HeaderList& extraHeaders = {},
-                                     const size_t clientRxBufferSize = 0) {
+                                     const HttpDownloader::Transport transport) {
   HttpDownloader::lastHttpStatus = 0;
-  // Header-borne API keys are credentials too: they follow the same origin rule as Basic
-  // auth, or a redirect to another host would receive them.
   HttpRedirectPolicy::Url credentialOrigin;
   const std::string_view credentialUrl = authorizationOrigin.empty() ? std::string_view(url) : authorizationOrigin;
   const bool originValid = HttpRedirectPolicy::parseUrl(credentialUrl, credentialOrigin);
-  const bool hasCredentials = ((!username.empty() && !password.empty()) || !extraHeaders.empty()) && originValid;
+  const bool hasCredentials = !username.empty() && !password.empty() && originValid;
 #if defined(FREEINK_NET_WOLFSSL) || defined(FREEINK_NET_EXTERNAL_TLS)
   if (transport == HttpDownloader::Transport::WOLFSSL) {
-    (void)clientRxBufferSize;  // SecureHttpClient owns its own fixed buffer.
-    return runGetWolfSsl(url, username, password, credentialOrigin, hasCredentials, sink, bufferSize, extraHeaders);
+    return runGetWolfSsl(url, username, password, credentialOrigin, hasCredentials, sink, bufferSize);
   }
 #else
   (void)transport;
 #endif
-  return runGetDefault(url, username, password, credentialOrigin, hasCredentials, sink, bufferSize, extraHeaders,
-                       clientRxBufferSize);
+  return runGetDefault(url, username, password, credentialOrigin, hasCredentials, sink, bufferSize);
 }
 }  // namespace
 
@@ -679,8 +659,7 @@ HttpDownloader::DownloadError HttpDownloader::streamUrl(const std::string& url, 
   sink.progress = std::move(progress);
   sink.shouldCancel = std::move(options.shouldCancel);
   const size_t bufferSize = options.bufferSize > 0 ? options.bufferSize : DEFAULT_DOWNLOAD_BUFFER_SIZE;
-  return runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport,
-                options.extraHeaders, options.clientRxBufferSize);
+  return runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport);
 }
 
 HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& url, const std::string& destPath,
@@ -781,9 +760,11 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     const size_t requiredTotal = options.expectedBytes ? options.expectedBytes : sink.total;
     if (options.checkFreeSpace && !spaceChecked && requiredTotal > 0) {
       spaceChecked = true;
-      // Some SD transports cannot report capacity; let the write fail instead.
+      // Some SD transports cannot report capacity, and counting a FAT32 card's free space
+      // can take minutes (see CardSpace). Either way the write is left to fail, and a full
+      // card is told apart once it has.
       const uint64_t totalBytes = Storage.totalBytes();
-      if (totalBytes > 0 && requiredTotal > sink.resumeOffset) {
+      if (totalBytes > 0 && requiredTotal > sink.resumeOffset && CardSpace::isQuickToCount()) {
         const uint64_t usedBytes = Storage.usedBytes();
         const uint64_t freeBytes = totalBytes > usedBytes ? totalBytes - usedBytes : 0;
         // Existing destinations remain included in usedBytes: replacement
@@ -827,8 +808,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
     sink.downloaded = before;
     sink.rangeIgnored = sink.retryable = sink.invalidResponse = false;
     sink.responseEnd = 0;
-    result = runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport,
-                    options.extraHeaders, options.clientRxBufferSize);
+    result = runGet(url, username, password, options.authorizationOrigin, sink, bufferSize, options.transport);
     if (sink.destinationError != OK) result = sink.destinationError;
     if (fileOpen) {
       const bool synced = file.sync();
@@ -867,6 +847,20 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
   if (result != OK) {
     LOG_ERR("HTTP", "Transfer failed: error=%d downloaded=%zu expected=%zu preservePartial=%d resumePartial=%d",
             static_cast<int>(result), sink.downloaded, sink.total, options.preservePartial, options.resumePartial);
+#ifndef SIMULATOR
+    // A card that filled up and an I/O error both end as a failed write, which SdFat does
+    // not tell apart. The used bytes can be up to 20 seconds old, which is close enough.
+    if (result == FILE_ERROR) {
+      const uint64_t totalBytes = Storage.totalBytes();
+      const uint64_t usedBytes = Storage.usedBytes();
+      LOG_ERR("HTTP", "SD card after the failed write: %llu of %llu bytes used",
+              static_cast<unsigned long long>(usedBytes), static_cast<unsigned long long>(totalBytes));
+      // The write stopped short of the end. Without a length, a full card has no cluster left.
+      const uint64_t freeBytes = totalBytes > usedBytes ? totalBytes - usedBytes : 0;
+      const uint64_t neededBytes = sink.total > sink.downloaded ? sink.total - sink.downloaded : 1;
+      if (options.checkFreeSpace && totalBytes > 0 && freeBytes < neededBytes) result = INSUFFICIENT_SPACE;
+    }
+#endif
     if (outputPrepared && (result == ABORTED || !options.preservePartial)) {
       Storage.remove(writePath.c_str());
     }

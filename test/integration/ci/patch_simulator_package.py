@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Patch the fetched crossink-simulator package with shims the firmware needs.
 
-The simulator package (lib_deps: uxjulia/crossink-simulator, unpinned) trails the
+The simulator package (lib_deps: uxjulia/crossink-simulator) trails the
 firmware's HAL surface. Until the fixes land upstream, a cold build — CI, or a
 fresh checkout — needs these shims applied to the fetched copy under
 .pio/libdeps/<env>/simulator/. Each patch checks for its own marker first, so
@@ -133,6 +133,24 @@ def patch_env(env: str) -> None:
             "    (void)async;\n    (void)show_hidden;",
             "    if (async)\n      return -1; // WIFI_SCAN_RUNNING\n    (void)show_hidden;", 1)):
         changed.append("async scanNetworks")
+
+    # 5. CrossInk v2.0.0's web server times out idle WebSocket clients and sizes
+    #    its per-client table with the real library's WEBSOCKETS_SERVER_CLIENT_MAX,
+    #    which the simulator's stand-in header does not define (its client loop
+    #    itself is device-only).
+    if patch(src / "WebSocketsServer.h", "WEBSOCKETS_SERVER_CLIENT_MAX", lambda t: t.replace(
+            '#include "WString.h"\n',
+            '#include "WString.h"\n\n#ifndef WEBSOCKETS_SERVER_CLIENT_MAX\n'
+            '#define WEBSOCKETS_SERVER_CLIENT_MAX 5\n#endif\n', 1)):
+        changed.append("WebSockets client limit")
+
+    # 6. The SD firmware updater compares the next-update slot with the running
+    #    one; the simulator has neither and reports no partition.
+    if patch(src / "esp_ota_ops.h", "esp_ota_get_running_partition", lambda t: t.replace(
+            "inline esp_err_t esp_ota_mark_app_valid_cancel_rollback() {",
+            "inline const esp_partition_t *esp_ota_get_running_partition() {\n  return nullptr;\n}\n\n"
+            "inline esp_err_t esp_ota_mark_app_valid_cancel_rollback() {", 1)):
+        changed.append("esp_ota_get_running_partition")
 
     if changed:
         print(f"[{env}] patched: {', '.join(changed)}")

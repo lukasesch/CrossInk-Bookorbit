@@ -40,8 +40,6 @@ class HttpDownloader {
     WOLFSSL,
   };
 
-  using HeaderList = std::vector<std::pair<std::string, std::string>>;
-
   struct DownloadOptions {
     explicit DownloadOptions(bool preservePartial = false, bool resumePartial = false,
                              CancelCallback shouldCancel = nullptr, size_t bufferSize = 0,
@@ -52,26 +50,16 @@ class HttpDownloader {
           bufferSize(bufferSize),
           transport(transport) {}
 
-    // Borrowed for the synchronous call; never forwarded to a different origin.
+    // Borrowed for the synchronous call; never forwarded to a different origin. Treated
+    // as credentials (BookOrbit's x-auth-user/x-auth-key): see authorizationOrigin.
     const std::vector<Header>* headers = nullptr;
     bool preservePartial;
     bool resumePartial;
     CancelCallback shouldCancel;
     size_t bufferSize;
     Transport transport;
-
-    // Extra request headers, for APIs that authenticate with them (BookOrbit's
-    // x-auth-user/x-auth-key). Treated as credentials: see authorizationOrigin.
-    HeaderList extraHeaders;
-
-    // esp_http_client's own RX buffer (0 = its default). Worth shrinking for TLS servers on
-    // a fragmented heap: body bytes arriving with the headers are cached via realloc in
-    // steps of this size, competing with the TLS record buffer for the largest free block.
-    size_t clientRxBufferSize = 0;
-
-    // Borrowed only for this synchronous request. Credentials -- Basic auth and
-    // extraHeaders alike -- are sent only to this origin; empty keeps the request
-    // URL as the credential origin, so a redirect to another host never sees them.
+    // Borrowed only for this synchronous request. Basic credentials are sent
+    // only to this origin; empty keeps the request URL as the credential origin.
     std::string_view authorizationOrigin;
     // Download to "<destPath>.part" and rename it over destPath only once the
     // transfer succeeds, so a failed or interrupted download never replaces
@@ -100,9 +88,10 @@ class HttpDownloader {
     // restriction, not TLS authentication (WOLFSSL currently uses insecure TLS).
     bool (*allowUrl)(std::string_view url, void* context) = nullptr;
     void* urlContext = nullptr;
-    // Once the response length is known, fail with INSUFFICIENT_SPACE before
-    // writing anything if the SD card cannot hold the file. The first check
-    // can scan the whole FAT, so leave it off for small files.
+    // Fail with INSUFFICIENT_SPACE when the SD card cannot hold the file: on exFAT
+    // before writing anything, once the response length is known; on FAT32, whose
+    // count can take minutes (see CardSpace), only once a write has failed. The
+    // count reads the card's whole allocation table, so leave it off for small files.
     bool checkFreeSpace = false;
     // Opt in only for bulk WOLFSSL transfers. Reserve after request text is
     // freed; other transports and SDK builds without retention ignore this.
@@ -142,15 +131,15 @@ class HttpDownloader {
                                  HttpRequestDiagnostics* diagnostics = nullptr);
 
   /**
-   * Download a file to the SD card with optional credentials.
-   */
-  /**
    * HTTP status code from the last request, or 0 when no response line was received.
    * Diagnostic only, so callers can tell a 404 (wrong path or server version) from a
    * transport failure.
    */
   static int lastHttpStatus;
 
+  /**
+   * Download a file to the SD card with optional credentials.
+   */
   static DownloadError downloadToFile(const std::string& url, const std::string& destPath,
                                       ProgressCallback progress = nullptr, bool* cancelFlag = nullptr,
                                       const std::string& username = "", const std::string& password = "",

@@ -17,7 +17,6 @@
 #include "XPathBuildCommon.h"
 
 namespace {
-
 // XML formatting whitespace; other Unicode spaces can be meaningful book content.
 bool isWhitespaceOnly(const XML_Char* data, const int len) {
   for (int i = 0; i < len; ++i) {

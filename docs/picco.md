@@ -47,3 +47,6 @@ factory-image installation.
 
 CrossInk's Wi-Fi and SD-card firmware-update options are unavailable on Picco.
 Use the supported Picco USB installation method for updates too.
+
+To install this fork's Picco firmware, follow
+[Installation > BOOX Picco](./installation.md#boox-picco).

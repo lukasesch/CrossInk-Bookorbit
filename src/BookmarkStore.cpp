@@ -25,7 +25,7 @@ constexpr char READ_FOLDER[] = "/Read";
 // Header scans only need small display metadata and an SD path. Reject
 // oversized fields before std::string can request a file-sized allocation.
 constexpr uint32_t MAX_BOOKMARK_HEADER_FIELD_BYTES = 1024;
-// Paths here are fixed directory + format + numeric hash, never full book paths.
+// Paths here are fixed directory + format + numeric or content hash, never full book paths.
 constexpr size_t BOOKMARK_STORE_PATH_BYTES = 96;
 const atomic_file::Operations BOOKMARK_FILE_OPS{
     nullptr,
@@ -319,10 +319,13 @@ bool BookmarkStore::loadForBook(const std::string& filePath, const std::string& 
   // std::hash name from before the crc32 one.
   const std::string legacyStoreFilePaths[] = {currentStoreFilePathForBook(filePath, bookType),
                                               legacyStoreFilePathForBook(filePath, bookType)};
+  constexpr size_t LEGACY_STORE_COUNT = sizeof(legacyStoreFilePaths) / sizeof(legacyStoreFilePaths[0]);
   const bool hasCurrentFile = hasBookmarkFile(storeFilePath);
+  bool hasLegacyFile[LEGACY_STORE_COUNT] = {};
   bool hasAnyLegacyFile = false;
-  for (const auto& legacyPath : legacyStoreFilePaths) {
-    hasAnyLegacyFile = hasAnyLegacyFile || (legacyPath != storeFilePath && hasBookmarkFile(legacyPath));
+  for (size_t i = 0; i < LEGACY_STORE_COUNT; ++i) {
+    hasLegacyFile[i] = legacyStoreFilePaths[i] != storeFilePath && hasBookmarkFile(legacyStoreFilePaths[i]);
+    hasAnyLegacyFile = hasAnyLegacyFile || hasLegacyFile[i];
   }
 
   if (!hasCurrentFile && !hasAnyLegacyFile) {
@@ -367,10 +370,9 @@ bool BookmarkStore::loadForBook(const std::string& filePath, const std::string& 
     }
   }
 
-  for (const auto& legacyStoreFilePath : legacyStoreFilePaths) {
-    if (legacyStoreFilePath == storeFilePath || !hasBookmarkFile(legacyStoreFilePath)) {
-      continue;
-    }
+  for (size_t i = 0; i < LEGACY_STORE_COUNT; ++i) {
+    if (!hasLegacyFile[i]) continue;
+    const std::string& legacyStoreFilePath = legacyStoreFilePaths[i];
     bool legacyNeedsRewrite = false;
     BookmarkRecords legacyBookmarks;
     if (!readFromFile(legacyStoreFilePath, legacyBookmarks, legacyNeedsRewrite)) {
@@ -393,19 +395,18 @@ bool BookmarkStore::loadForBook(const std::string& filePath, const std::string& 
     dirty = true;
     saveToFile();
   }
-  if (hasAnyLegacyFile && !dirty && (currentLoaded || needsRewrite)) {
-    for (const auto& legacyStoreFilePath : legacyStoreFilePaths) {
-      if (legacyStoreFilePath == storeFilePath || !Storage.exists(legacyStoreFilePath.c_str())) continue;
-      if (deleteBookmarkStorePath(legacyStoreFilePath, "legacy")) {
-        LOG_INF("BKS", "Migrated legacy bookmark store: %s -> %s", legacyStoreFilePath.c_str(), storeFilePath.c_str());
-      }
+  for (size_t i = 0; i < LEGACY_STORE_COUNT; ++i) {
+    if (!hasLegacyFile[i] || dirty || !(currentLoaded || needsRewrite)) continue;
+    if (deleteBookmarkStorePath(legacyStoreFilePaths[i], "legacy")) {
+      LOG_INF("BKS", "Migrated legacy bookmark store: %s -> %s", legacyStoreFilePaths[i].c_str(),
+              storeFilePath.c_str());
     }
   }
 
   // A content-keyed store follows its book through a move, but its header still names the
   // old path; mark it dirty so the next unload rewrites it and the saved-items lists can
   // reopen the book from its new location.
-  if (!dirty && hasCurrentFile) {
+  if (contentKeyed && !dirty && hasCurrentFile) {
     BookmarkFileHeader header;
     if (readBookmarkFileHeader(storeFilePath, "", header) && header.path != filePath) {
       dirty = true;
@@ -492,7 +493,7 @@ void BookmarkStore::removeBookmarkForPage(uint16_t spineIndex, float pageProgres
 }
 
 bool BookmarkStore::stampMissingTimestamp(const size_t index, const uint32_t timestamp) {
-  if (index >= bookmarks.size() || timestamp == 0 || bookmarks[index].timestamp != 0) return false;
+  if (!writable || index >= bookmarks.size() || timestamp == 0 || bookmarks[index].timestamp != 0) return false;
   bookmarks[index].timestamp = timestamp;
   dirty = true;
   saveToFile();
@@ -575,6 +576,10 @@ bool BookmarkStore::readFromFile(const std::string& path, BookmarkRecords& out, 
     return false;
   }
   uint16_t count = 0;
+  // The stored path guards path-keyed stores, where a filename collision could hand us
+  // another book's bookmarks. A content-keyed store carries the book's identity in its
+  // filename instead, and its header path legitimately goes stale when the book is moved
+  // or copied -- the caller refreshes it, so a mismatch must not reject the store there.
   if (!readBookmarkCount(f, version, count) || count > MAX_BOOKMARKS || !consumeStoredString(f) ||
       !consumeStoredString(f) || !consumeStoredString(f, enforceStoredPath ? &bookFilePath : nullptr)) {
     LOG_ERR("BKS", "Invalid bookmark header or book path: %s", path.c_str());

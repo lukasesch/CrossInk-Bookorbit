@@ -240,8 +240,6 @@ class EpubReaderActivity final : public Activity {
   bool statsTrackingActive = true;
   bool paceDirty = false;
   bool pendingStatsCommit = false;
-  ReadingStatsDateTime sessionStartLocalDateTime;
-  bool hasSessionStartLocalDateTime = false;
   // Per-page reading events buffered in RAM during the session and flushed to the
   // book's BookOrbit stats queue on exit (never written once per page turn).
   std::vector<BookOrbitStatEvent> pendingBookOrbitEvents;

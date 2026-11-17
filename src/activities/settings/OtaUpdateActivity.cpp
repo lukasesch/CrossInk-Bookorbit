@@ -5,6 +5,7 @@
 #include <WiFi.h>
 
 #include "AppVersion.h"
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
@@ -58,6 +59,7 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
     return;
   }
 
+  updater.setIncludePrereleases(SETTINGS.otaIncludePrereleases != 0);
   const auto res = updater.checkForUpdate();
   if (res != OtaUpdater::OK) {
     LOG_DBG("OTA", "Update check failed: %d", res);

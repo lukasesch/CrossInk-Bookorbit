@@ -13,6 +13,8 @@ class HalClock {
     mi = minute;
     return valid;
   }
+  // This fork's clockless fallback (getCurrentLocalReadingStatsDateTimeAnyClock) asks it.
+  bool hasCurrentTime() const { return valid; }
   bool getReadingDateTime(uint16_t& y, uint8_t& mo, uint8_t& d, uint8_t& h, uint8_t& mi, uint8_t& s) const {
     s = second;
     return getDateTime(y, mo, d, h, mi);

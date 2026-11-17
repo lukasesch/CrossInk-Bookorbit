@@ -29,6 +29,16 @@
 #include "util/ReaderStatusBarJson.h"
 #include "util/TwoFingerSwipe.h"
 
+bool CrossPointSettings::fadingFixSupported() {
+  const auto board = BoardConfig::ACTIVE.board;
+  if (board == BoardConfig::Board::XteinkX4 || board == BoardConfig::Board::XteinkX3) return true;
+#ifndef SIMULATOR
+  return board == BoardConfig::Board::XteinkX3Uc8279;
+#else
+  return false;
+#endif
+}
+
 void readAndValidate(FsFile& file, uint8_t& member, const uint8_t maxValue) {
   uint8_t tempValue;
   serialization::readPod(file, tempValue);
@@ -40,9 +50,9 @@ void readAndValidate(FsFile& file, uint8_t& member, const uint8_t maxValue) {
 namespace {
 constexpr uint8_t SETTINGS_FILE_VERSION = 2;
 // Which numbering the saved BookOrbit Sync shortcuts use (see SHORT_PWRBTN::BOOKORBIT_SYNC).
-// Absent from files written up to v1.6.0+bookorbit.2; 2 on CrossInk v1.6.1; 3 on v2.0.0.
-// Bump it, and add the previous numbers next to migrateBookOrbitShortcutValues(), each
-// time the action moves past upstream's new ones.
+// Absent from files written up to v1.6.0+bookorbit.2. Bump it, and give the previous
+// numbering its BookOrbitShortcutNumbers entry, each time the action moves past
+// upstream's new ones.
 constexpr uint8_t BOOKORBIT_SHORTCUT_IDS_CURRENT = 3;
 constexpr char SETTINGS_FILE_BIN[] = "/.crosspoint/settings.bin";
 constexpr char SETTINGS_FILE_JSON[] = "/.crosspoint/crossink-settings.json";
@@ -254,40 +264,71 @@ bool isValidQuickActionSlot(const uint8_t action) {
          action == CrossPointSettings::BOOKORBIT_SYNC;
 }
 
-// The numbers BookOrbit Sync was saved under before the current numbering, per saved
-// bookOrbitShortcutIds. Each set is a valid upstream action in the later numbering, so a
-// set only means BookOrbit Sync in a file this fork wrote with that id.
+// The numbers BookOrbit Sync was saved under before the current numbering. Upstream
+// later persists each of them as one of its own actions, so an old number only means
+// BookOrbit Sync in a file saved under that numbering.
 struct BookOrbitShortcutNumbers {
-  uint8_t shortcut;
-  uint8_t chord;
-  uint8_t longMenu;
+  uint8_t power;     // SHORT_PWRBTN: Power, Home key, side and front buttons, Quick Actions
+  uint8_t chord;     // POWER_CHORD_ACTION
+  uint8_t longMenu;  // LONG_PRESS_MENU_ACTION
 };
-// Up to v1.6.0+bookorbit.2 (no id saved); CrossInk v1.6.1 persists these as Library.
-constexpr BookOrbitShortcutNumbers BOOKORBIT_SHORTCUT_IDS_0{33, 31, 24};
-// On CrossInk v1.6.1 (id 2); CrossInk v2.0.0 persists these as Back Home / Home Reader.
-constexpr BookOrbitShortcutNumbers BOOKORBIT_SHORTCUT_IDS_2{37, 33, 25};
+// Files without bookOrbitShortcutIds, up to v1.6.0+bookorbit.2. CrossInk v1.6.1 persists
+// these numbers as its Library action.
+constexpr BookOrbitShortcutNumbers BOOKORBIT_SHORTCUTS_UNVERSIONED = {33, 31, 24};
+// bookOrbitShortcutIds 2, v1.6.1+bookorbit.1 to .5. CrossInk v2.0.0 persists these as
+// Back Home (Power and chords) and Home/Reader (long press).
+constexpr BookOrbitShortcutNumbers BOOKORBIT_SHORTCUTS_V2 = {37, 33, 25};
 
-bool migrateBookOrbitShortcutValues(CrossPointSettings& settings, const BookOrbitShortcutNumbers& legacy) {
-  bool changed = false;
-  const auto carry = [&changed](uint8_t& value, const uint8_t from, const uint8_t to) {
-    if (value != from) return;
-    value = to;
-    changed = true;
+const BookOrbitShortcutNumbers* savedBookOrbitShortcutNumbers(JsonVariantConst doc, const bool importingCrossPoint) {
+  // Another firmware's settings never held this fork's action.
+  if (importingCrossPoint) return nullptr;
+  const uint8_t ids = doc["bookOrbitShortcutIds"] | static_cast<uint8_t>(0);
+  if (ids == 2) return &BOOKORBIT_SHORTCUTS_V2;
+  // The side-button keys are new in CrossInk v1.6.1: an unversioned file that has them
+  // was saved by upstream CrossInk, where these numbers already mean Library.
+  if (ids == 0 && doc["sideButtonUpShort"].isNull()) return &BOOKORBIT_SHORTCUTS_UNVERSIONED;
+  return nullptr;
+}
+
+// Carries a shortcut saved as BookOrbit Sync under an older numbering over to the current
+// one. It must run before the value is checked against today's options: there the old
+// number names an upstream action, or none at all on the Home key, whose Back Home is 23.
+uint8_t carryBookOrbitShortcut(const char* const key, const uint8_t value, const BookOrbitShortcutNumbers* const saved,
+                               bool& carried) {
+  if (!saved || !key) return value;
+  static constexpr const char* POWER_KEYS[] = {"shortPwrBtn",
+                                               "longPwrBtn",
+                                               "homeButtonTapAction",
+                                               "homeButtonDoubleTapAction",
+                                               "homeButtonLongPressAction",
+                                               "sideButtonUpShort",
+                                               "sideButtonUpLong",
+                                               "sideButtonDownShort",
+                                               "sideButtonDownLong",
+                                               "frontButtonLeftLong",
+                                               "frontButtonRightLong"};
+  static constexpr const char* CHORD_KEYS[] = {"powerChordAction", "sideButtonChordAction"};
+  static constexpr const char* LONG_MENU_KEYS[] = {"longPressMenuAction", "longPressBackAction"};
+  const auto listed = [key](const auto& keys) {
+    return std::any_of(std::begin(keys), std::end(keys), [key](const char* k) { return strcmp(k, key) == 0; });
   };
-  for (uint8_t* const action : {&settings.shortPwrBtn, &settings.longPwrBtn, &settings.homeButtonTapAction,
-                                &settings.homeButtonDoubleTapAction, &settings.homeButtonLongPressAction}) {
-    carry(*action, legacy.shortcut, CrossPointSettings::BOOKORBIT_SYNC);
+  uint8_t legacy;
+  uint8_t current;
+  if (listed(POWER_KEYS)) {
+    legacy = saved->power;
+    current = CrossPointSettings::BOOKORBIT_SYNC;
+  } else if (listed(CHORD_KEYS)) {
+    legacy = saved->chord;
+    current = CrossPointSettings::CHORD_BOOKORBIT_SYNC;
+  } else if (listed(LONG_MENU_KEYS)) {
+    legacy = saved->longMenu;
+    current = CrossPointSettings::LONG_MENU_BOOKORBIT_SYNC;
+  } else {
+    return value;
   }
-  for (uint8_t& action : settings.quickActionSlots) {
-    carry(action, legacy.shortcut, CrossPointSettings::BOOKORBIT_SYNC);
-  }
-  for (uint8_t* const action : {&settings.powerChordAction, &settings.sideButtonChordAction}) {
-    carry(*action, legacy.chord, CrossPointSettings::CHORD_BOOKORBIT_SYNC);
-  }
-  for (uint8_t* const action : {&settings.longPressMenuAction, &settings.longPressBackAction}) {
-    carry(*action, legacy.longMenu, CrossPointSettings::LONG_MENU_BOOKORBIT_SYNC);
-  }
-  return changed;
+  if (value != legacy) return value;
+  carried = true;
+  return current;
 }
 
 uint8_t migrateTiltDirectionValue(const uint8_t direction) {
@@ -301,6 +342,8 @@ uint8_t migrateTiltDirectionValue(const uint8_t direction) {
 const char* CrossPointSettings::getDefaultDeviceName() {
 #if (defined(FREEINK_DEVICE_X4CLASSIC) && FREEINK_DEVICE_X4CLASSIC) || defined(SIMULATOR_DEVICE_X4_CLASSIC)
   return "X4 Classic";
+#elif defined(FREEINK_DEVICE_EEGO_A4) && FREEINK_DEVICE_EEGO_A4
+  return "Crossink EEGO A4";
 #endif
 #if defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO
   return "CrossInk Picco";
@@ -510,8 +553,8 @@ uint16_t CrossPointSettings::getReadingIdleTimeThresholdSeconds() const {
 
 void CrossPointSettings::toJson(JsonDocument& doc) const {
   std::lock_guard<std::mutex> lock(_mutex);
-  for (const auto& info : getBaseSettingsList()) {
-    if (!info.key || (!info.valuePtr && !info.value16Ptr && !info.stringOffset)) continue;
+  forEachBaseSetting([&](const SettingInfo& info) {
+    if (!info.key || (!info.valuePtr && !info.value16Ptr && !info.stringOffset)) return;
     if (info.stringOffset) {
       const char* value = reinterpret_cast<const char*>(this) + info.stringOffset;
       if (info.obfuscated) {
@@ -528,7 +571,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
       if (isSleepScreenSetting(info)) value = sleepScreenModeToStorage(value);
       doc[info.key] = value;
     }
-  }
+  });
 
   // Images is a combined UI choice; retain the original persisted pair for compatibility.
   doc["imageRendering"] = imageRendering;
@@ -545,7 +588,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   bars["xtcMode"] = xtcStatusBarMode;
   bars["legacyXtcTopUsesBottom"] = legacyXtcTopUsesBottom != 0;
 
-  // Library-local choices stay out of the resident settings catalog and Web Settings.
+  // Library-local choices stay out of the settings catalog and Web Settings.
   doc["librarySortMethod"] = librarySortMethod;
   doc["librarySortDescending"] = librarySortDescending;
   doc["libraryListExpanded"] = libraryListExpanded;
@@ -604,16 +647,18 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
       ((doc["tiltPageTurnDirectionSchema"] | static_cast<uint8_t>(1)) < TILT_DIRECTION_SCHEMA_CURRENT);
   if (doc["statusBarChapterPageCount"].isNull()) applyLegacyStatusBarSettings(*this);
   screenInverted = clamp(doc["screenInverted"] | screenInverted, 2, screenInverted);
+  const BookOrbitShortcutNumbers* const savedBookOrbitNumbers = savedBookOrbitShortcutNumbers(doc, importingCrossPoint);
+  bool bookOrbitShortcutsCarried = false;
 
-  for (const auto& info : getBaseSettingsList()) {
-    if (!info.key || (!info.valuePtr && !info.value16Ptr && !info.stringOffset)) continue;
+  forEachBaseSetting([&](const SettingInfo& info) {
+    if (!info.key || (!info.valuePtr && !info.value16Ptr && !info.stringOffset)) return;
     if (info.stringOffset) {
       char* destination = reinterpret_cast<char*>(this) + info.stringOffset;
       if (info.stringMaxLen == 0) {
         LOG_ERR("CPS", "Misconfigured SettingInfo: stringMaxLen is 0 for key '%s'", info.key);
         destination[0] = '\0';
         needsResave = true;
-        continue;
+        return;
       }
       const std::string fieldDefault = destination;
       std::string value;
@@ -648,7 +693,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
         destination[0] = '\0';
         needsResave = true;
       }
-      continue;
+      return;
     }
 
     if (info.value16Ptr) {
@@ -658,16 +703,23 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
         value = std::clamp(value, info.valueRange.min, info.valueRange.max);
       }
       this->*(info.value16Ptr) = value;
-      continue;
+      return;
     }
 
     // Missing keys in older exports restore the original status font size and
     // bidirectional tilt behavior, even if this session changed them.
+    // Sensitivity also restores Normal for older exports and invalid values.
     const uint8_t fieldDefault = info.valuePtr == &CrossPointSettings::displayStatusBarTextSize ||
                                          info.valuePtr == &CrossPointSettings::tiltNextPageOnly
                                      ? 0
                                      : this->*(info.valuePtr);
-    uint8_t value = doc[info.key] | fieldDefault;
+    const uint8_t importDefault = info.valuePtr == &CrossPointSettings::tiltSensitivity
+                                      ? static_cast<uint8_t>(TiltSensitivity::NORMAL)
+                                      : fieldDefault;
+    uint8_t value = doc[info.key] | importDefault;
+    if (!doc[info.key].isNull()) {
+      value = carryBookOrbitShortcut(info.key, value, savedBookOrbitNumbers, bookOrbitShortcutsCarried);
+    }
     // CrossPoint stores normal spacing as 100%; CrossInk stores it as level 0.
     // Keep native CrossInk levels intact, including files at the legacy path.
     if (importingCrossPoint && info.valuePtr == &CrossPointSettings::wordSpacing && value == 100) {
@@ -684,7 +736,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
       value = sleepScreenStorageToMode(storedValue);
       if (sleepScreenModeToStorage(value) != storedValue) needsResave = true;
       this->*(info.valuePtr) = value;
-      continue;
+      return;
     }
     if (strcmp(info.key, "fontSize") == 0 && !doc["fontSize"].isNull() && value < MIN_READER_FONT_POINT_SIZE) {
       if (doc["sdFontFamilyName"].is<const char*>() && doc["sdFontFamilyName"].as<const char*>()[0] != '\0') {
@@ -697,7 +749,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
                !(strcmp(info.key, "fontSize") == 0 && doc["sdFontFamilyName"].is<const char*>() &&
                  doc["sdFontFamilyName"].as<const char*>()[0] != '\0' && value >= MIN_READER_FONT_POINT_SIZE) &&
                !isEnumRawValueAllowed(info, value)) {
-      value = defaultEnumRawValue(info, fieldDefault);
+      value = defaultEnumRawValue(info, importDefault);
       needsResave = true;
     } else if (info.type == SettingType::TOGGLE) {
       value = clamp(value, 2, fieldDefault);
@@ -705,7 +757,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
       value = std::clamp(value, static_cast<uint8_t>(info.valueRange.min), static_cast<uint8_t>(info.valueRange.max));
     }
     this->*(info.valuePtr) = value;
-  }
+  });
 
   // The dynamic Images setting is intentionally absent from the generic field loop.
   imageRendering = clamp(doc["imageRendering"] | imageRendering, IMAGE_RENDERING_COUNT, imageRendering);
@@ -1009,7 +1061,11 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   const JsonArrayConst quickActionSlotsJson = doc["quickActionSlots"].as<JsonArrayConst>();
   if (!quickActionSlotsJson.isNull()) {
     for (size_t i = 0; i < std::size(quickActionSlots); ++i) {
-      const uint8_t action = quickActionSlotsJson[i] | static_cast<uint8_t>(IGNORE);
+      uint8_t action = quickActionSlotsJson[i] | static_cast<uint8_t>(IGNORE);
+      if (savedBookOrbitNumbers && action == savedBookOrbitNumbers->power) {
+        action = BOOKORBIT_SYNC;
+        bookOrbitShortcutsCarried = true;
+      }
       if (isValidQuickActionSlot(action)) {
         quickActionSlots[i] = action;
       } else {
@@ -1074,22 +1130,8 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
   }
   pluginHubPromptHidden = clamp(doc["pluginHubPromptHidden"] | uint8_t{0}, 2, 0);
 
-  // Runs last, on the values every step above has settled. Only a file this fork saved
-  // holds its action, so another firmware's settings are never carried over. Id 0 (none
-  // saved) is a pre-v1.6.1 fork file only when it lacks the side-button keys CrossInk
-  // v1.6.1 added; id 2 is the fork on v1.6.1.
-  const uint8_t bookOrbitShortcutIds = doc["bookOrbitShortcutIds"] | static_cast<uint8_t>(0);
-  if (bookOrbitShortcutIds != BOOKORBIT_SHORTCUT_IDS_CURRENT) {
-    const bool preV161Fork = bookOrbitShortcutIds == 0 && doc["sideButtonUpShort"].isNull();
-    const BookOrbitShortcutNumbers* legacy = preV161Fork                 ? &BOOKORBIT_SHORTCUT_IDS_0
-                                             : bookOrbitShortcutIds == 2 ? &BOOKORBIT_SHORTCUT_IDS_2
-                                                                         : nullptr;
-    if (!importingCrossPoint && legacy && migrateBookOrbitShortcutValues(*this, *legacy)) {
-      LOG_INF("CPS", "Carried BookOrbit Sync shortcuts over to their new numbers");
-    }
-    needsResave = true;
-  }
-
+  if (bookOrbitShortcutsCarried) LOG_INF("CPS", "Carried BookOrbit Sync shortcuts over to their new numbers");
+  if ((doc["bookOrbitShortcutIds"] | static_cast<uint8_t>(0)) != BOOKORBIT_SHORTCUT_IDS_CURRENT) needsResave = true;
   if (needsResave) requestResave();
   WifiTransmitPower::setLimit(wifiTransmitPower);
   LOG_DBG("CPS", "Settings loaded from file");
@@ -1467,12 +1509,14 @@ bool CrossPointSettings::verifySleepScreenMigrationContract() {
 #endif
 
 bool CrossPointSettings::isRefreshNeverAvailable() {
-#if defined(FREEINK_DEVICE_PICCO) && FREEINK_DEVICE_PICCO
-  // Keep periodic cleanup on Picco until its panels are validated without it.
-  return false;
-#else
-  return Frontlight.present();
-#endif
+  // Never is opt-in per device. A frontlight does not establish that a panel
+  // can run without periodic cleanup; validate new devices before adding them.
+  switch (BoardConfig::ACTIVE.board) {
+    case BoardConfig::Board::XteinkX4Pro:
+      return Frontlight.present();
+    default:
+      return false;
+  }
 }
 
 int CrossPointSettings::getRefreshFrequency() const {

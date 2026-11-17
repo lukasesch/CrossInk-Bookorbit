@@ -16,15 +16,22 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import hashlib
+import http.server
 import json
 import os
+import random
+import re
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -42,6 +49,8 @@ SIM_DEVICE_ID = "crossink-" + SIM_MAC.hex()
 SHORT_PWRBTN_SLEEP = 1  # CrossPointSettings::SHORT_PWRBTN::SLEEP
 SHORT_PWRBTN_BOOKORBIT_SYNC = 37  # CrossPointSettings::SHORT_PWRBTN::BOOKORBIT_SYNC
 SYNC_BEHAVIOR_SMART = 1
+UI_THEME_BOOKORBIT = 8
+BOOKORBIT_SYNC_FAILED = 7  # BookOrbitSyncActivity::SYNC_FAILED
 SYNC_MARKER_MAGIC = 0x424F5359  # "BOSY", BookOrbitSmartSync::MARKER_MAGIC
 SYNC_MARKER_FILE = "bookorbit_sync.bin"
 
@@ -406,7 +415,8 @@ def load_seed() -> tuple[dict, list[dict]]:
 
 # Library indices for scenarios that need a book with NO seeded server state,
 # outside every seeded range in seed/seed.py (progress 0-9, highlights 10-19,
-# bookmarks 20-24). One book per scenario so runs never contaminate each other.
+# bookmarks 20-24, collection 40-44). One book per scenario so runs never
+# contaminate each other.
 FRESH_BOOK = {
     "highlight_push": 30,
     "bookmark_push": 31,
@@ -418,6 +428,9 @@ FRESH_BOOK = {
     "highlight_note": 37,
     "bookmark_delete_all": 38,
     "highlight_reoffer": 39,
+    "highlight_push_backlog": 45,
+    "highlight_pull_backlog": 46,
+    "highlight_delete_propagates_large": 47,
 }
 
 # Bookmarks dedupe server-side on their converted location (paragraph precision), so a
@@ -437,6 +450,54 @@ def peer_device(manifest: dict) -> KosyncDevice:
                        manifest["kosync"]["password"], manifest["peer_device_id"])
     dev.auth()
     return dev
+
+
+@contextlib.contextmanager
+def server_with_failing_progress():
+    """A local stand-in for the server, yielding its URL: it forwards every request to the
+    real one except those for reading progress, which it answers with a 500. The server
+    is up, its dashboard answers, and a book's sync fails."""
+    upstream = BASE_URL.rstrip("/")
+    dropped = {"host", "connection", "accept-encoding", "content-length", "transfer-encoding"}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args) -> None:
+            pass
+
+        def forward(self) -> None:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length) if length else None
+            if "/syncs/progress" in self.path:
+                status, headers, data = 500, {"Content-Type": "application/json"}, b'{"message":"injected"}'
+            else:
+                request = urllib.request.Request(
+                    upstream + self.path, data=body, method=self.command,
+                    headers={k: v for k, v in self.headers.items() if k.lower() not in dropped})
+                try:
+                    with urllib.request.urlopen(request, timeout=30) as response:
+                        status, headers, data = response.status, dict(response.headers), response.read()
+                except urllib.error.HTTPError as error:
+                    status, headers, data = error.code, dict(error.headers), error.read()
+            self.send_response(status)
+            for key, value in headers.items():
+                if key.lower() not in dropped:
+                    self.send_header(key, value)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        do_GET = do_PUT = do_POST = do_DELETE = do_PATCH = forward
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def verify_device(manifest: dict, tag: str) -> KosyncDevice:
@@ -603,6 +664,231 @@ def scenario_sleep_sync_push(verbose: bool) -> None:
     assert remote.get("device_id") == SIM_DEVICE_ID, f"unexpected device id: {remote}"
 
 
+def home_snapshot_header(fs: SimFs) -> tuple[int, int] | None:
+    """The Home snapshot's (version, stored struct size), or None without a snapshot."""
+    path = fs.crosspoint / "bookorbit_home.bin"
+    if not path.exists():
+        return None
+    magic, version, size = struct.unpack_from("<IHH", path.read_bytes())
+    assert magic == 0x484F4242, f"unexpected Home snapshot magic {magic:#x}"
+    return version, size
+
+
+def scenario_home_theme_refresh(verbose: bool) -> None:
+    """The BookOrbit Home's tile refreshes its snapshot, from a boot with no open book."""
+    manifest, _ = load_seed()
+    with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp:
+        fs = SimFs(Path(tmp), manifest["kosync"])
+        (fs.crosspoint / "crossink-settings.json").write_text(json.dumps({"uiTheme": UI_THEME_BOOKORBIT}))
+        assert home_snapshot_header(fs) is None
+        # Without books the tile is the page's second stop. The run ends on the timeout:
+        # nothing can be scheduled across the two restarts.
+        run_simulator(fs, input_script="3000:DOWN:120;4500:CONFIRM:120", choice="none", timeout_s=14,
+                      verbose=verbose)
+        assert home_snapshot_header(fs) is not None, "the tile wrote no Home snapshot"
+        covers = fs.crosspoint / "bookorbit_home"
+        assert list(covers.glob("*.bmp")), "the refresh decoded no cover"
+        assert not list(covers.glob("*.jpg")), "a cover stayed pending with Wi-Fi off"
+
+
+def scenario_home_download_returns_home(verbose: bool) -> None:
+    """A book downloaded from a BookOrbit Home shelf ends on Home, not on a catalog listing."""
+    manifest, _ = load_seed()
+    with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp:
+        fs = SimFs(Path(tmp), manifest["kosync"])
+        (fs.crosspoint / "crossink-settings.json").write_text(json.dumps({"uiTheme": UI_THEME_BOOKORBIT}))
+        run_simulator(fs, input_script="3000:DOWN:120;4500:CONFIRM:120", choice="none", timeout_s=14,
+                      verbose=verbose)
+        assert home_snapshot_header(fs) is not None, "the tile wrote no Home snapshot"
+
+        # Library page, then its first stop: the first Discover cover, not on the card yet.
+        output = run_simulator(fs, input_script="3000:RIGHT:120;4500:CONFIRM:120", choice="none", timeout_s=60,
+                               verbose=verbose)
+        assert "Restarting into the download of book" in output, "the shelf book did not start a download"
+        downloaded = output.index("Downloading file")
+        after = output[downloaded:]
+        assert "Card space read" in after, "Home did not open after the download"
+        assert "Listing page" not in after, "the download went back to a catalog listing"
+        assert not (fs.crosspoint / "bookorbit_download.json").exists(), "the download was left to resume"
+
+
+def home_snapshot_continue_total(fs: SimFs) -> int:
+    """The snapshot's continueTotal: the eighth 4-byte field of BookOrbitHomeSnapshot."""
+    return struct.unpack_from("<i", (fs.crosspoint / "bookorbit_home.bin").read_bytes(), 8 + 7 * 4)[0]
+
+
+def scenario_home_also_reading_link(verbose: bool) -> None:
+    """The BookOrbit Home's "All (N) >" link opens the catalog on Continue reading, over
+    the root that Back returns to, and N is that listing's total as the sync counted it."""
+    manifest, _ = load_seed()
+    server = KosyncDevice(BASE_URL, manifest["kosync"]["username"],
+                          manifest["kosync"]["password"], SIM_DEVICE_ID)
+    reading_total = server.catalog_page(size=1, format="epub", readStatus="reading")["total"]
+    with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp:
+        fs = SimFs(Path(tmp), manifest["kosync"])
+        (fs.crosspoint / "crossink-settings.json").write_text(json.dumps({"uiTheme": UI_THEME_BOOKORBIT}))
+        run_simulator(fs, input_script="3000:DOWN:120;4500:CONFIRM:120", choice="none", timeout_s=14,
+                      verbose=verbose)
+        assert home_snapshot_header(fs) is not None, "the tile wrote no Home snapshot"
+        assert home_snapshot_continue_total(fs) == reading_total, \
+            f"snapshot counts {home_snapshot_continue_total(fs)} books in progress, the server {reading_total}"
+
+        # Without books the link is the page's third stop, after the BookOrbit tile.
+        script = ";".join(["3000:DOWN:120", "3500:DOWN:120", "4500:CONFIRM:120", "14000:QUIT"])
+        run_simulator(fs, input_script=script, choice="none", timeout_s=40, verbose=verbose)
+
+        caches = [json.loads(p.read_text())
+                  for p in sorted((fs.crosspoint / "bookorbit_lists").glob("*.json"))]
+        assert any("sections" in c for c in caches), "the catalog root was never loaded"
+        # Book cache keys are books|page|sort|readStatus|...
+        listings = {tuple(c["key"].split("|")[2:4]) for c in caches if c.get("key", "").startswith("books|")}
+        assert listings == {("recently_read", "reading")}, f"the link did not open Continue reading: {listings}"
+
+
+# BookOrbitHomeBook: int32 id, uint32 coverVersion, uint8 progress, bool hasCover, char[46].
+HOME_BOOK = struct.Struct("<iIBB46s")
+# BookOrbitHomeShelf: its BookOrbitHomeShelfSource (kind, char id[20], char name[46]), the
+# book count, then its four books.
+HOME_SHELF_HEAD = struct.Struct("<B20s46sB")
+HOME_SHELF_SIZE = HOME_SHELF_HEAD.size + 4 * HOME_BOOK.size
+HOME_SHELF_KIND = {"discover": 0, "recently_added": 1, "want_to_read": 2, "collection": 3, "smart_scope": 4}
+
+
+def home_snapshot_shelves(fs: SimFs) -> list[dict]:
+    """The snapshot's two Library shelves, the last fields of BookOrbitHomeSnapshot."""
+    raw = (fs.crosspoint / "bookorbit_home.bin").read_bytes()
+    _, version, size = struct.unpack_from("<IHH", raw)
+    assert version == 3, f"unexpected Home snapshot version {version}"
+    shelves = []
+    for index in range(2):
+        base = 8 + size - (2 - index) * HOME_SHELF_SIZE
+        kind, source_id, name, count = HOME_SHELF_HEAD.unpack_from(raw, base)
+        ids = [HOME_BOOK.unpack_from(raw, base + HOME_SHELF_HEAD.size + i * HOME_BOOK.size)[0]
+               for i in range(count)]
+        shelves.append({"kind": kind, "sourceId": source_id.split(b"\0")[0].decode(),
+                        "name": name.split(b"\0")[0].decode(), "ids": ids})
+    return shelves
+
+
+def scenario_home_shelf_sources(verbose: bool) -> None:
+    """The BookOrbit Home's two Library shelves list what BookOrbit Sync > Home chose: a
+    collection and the want-to-read shelf from bookorbit.json first, then the top shelf
+    switched to the SmartScope through the screens. Refresh lists restarts into its own
+    network boot and saves the server's collections and SmartScopes; leaving the screen
+    with a changed shelf syncs the Home, whose snapshot then lists the scope's books."""
+    manifest, _ = load_seed()
+    server = KosyncDevice(BASE_URL, manifest["kosync"]["username"],
+                          manifest["kosync"]["password"], SIM_DEVICE_ID)
+    collection, scope = manifest["collection"], manifest["smart_scope"]
+
+    def listing_ids(**params) -> set[int]:
+        return {b["id"] for b in server.catalog_page(size=50, format="epub", **params)["items"]}
+
+    collection_ids = listing_ids(collectionId=collection["id"])
+    scope_ids = listing_ids(smartScopeId=scope["id"])
+    shelf = request_json("GET", server.api("/plugin/catalog/dashboard/sections/want-to-read"),
+                         server._headers(), ok=(200,))
+    want_ids = {b["id"] for b in shelf["section"]["books"] if "epub" in [f.lower() for f in b["formats"]]}
+    assert collection_ids and scope_ids and want_ids, "the seed has no books to shelve"
+
+    with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp:
+        fs = SimFs(Path(tmp), manifest["kosync"])  # no open book: Power opens BookOrbit Sync
+        settings = json.loads((fs.crosspoint / "crossink-settings.json").read_text())
+        settings["uiTheme"] = UI_THEME_BOOKORBIT
+        (fs.crosspoint / "crossink-settings.json").write_text(json.dumps(settings))
+        bookorbit = json.loads((fs.crosspoint / "bookorbit.json").read_text())
+        # Each shelf is "kind:id:name"; only a collection or SmartScope has an id and name.
+        bookorbit["homeShelfTop"] = f"{HOME_SHELF_KIND['collection']}:{collection['id']}:{collection['name']}"
+        bookorbit["homeShelfBottom"] = f"{HOME_SHELF_KIND['want_to_read']}::"
+        (fs.crosspoint / "bookorbit.json").write_text(json.dumps(bookorbit))
+
+        # The Home tile's sync, as in home_theme_refresh.
+        run_simulator(fs, input_script="3000:DOWN:120;4500:CONFIRM:120", choice="none", timeout_s=14,
+                      verbose=verbose)
+        top, bottom = home_snapshot_shelves(fs)
+        assert top["kind"] == HOME_SHELF_KIND["collection"] and top["sourceId"] == str(collection["id"]), \
+            f"the top shelf does not list the collection: {top}"
+        assert top["name"] == collection["name"], f"the collection shelf lost its name: {top}"
+        assert set(top["ids"]) <= collection_ids and len(top["ids"]) == min(4, len(collection_ids)), \
+            f"collection shelf {top['ids']} is not the collection's {collection_ids}"
+        assert bottom["kind"] == HOME_SHELF_KIND["want_to_read"], f"the bottom shelf is not Want to read: {bottom}"
+        assert set(bottom["ids"]) <= want_ids and len(bottom["ids"]) == min(4, len(want_ids)), \
+            f"want-to-read shelf {bottom['ids']} is not the server's {want_ids}"
+
+        # Power (BookOrbit Sync without a book) opens its settings; Up wraps to Home, the
+        # last row, and Up again to Refresh lists, which restarts into the shelves' boot.
+        script = "3000:POWER:120;4500:UP:120;5500:CONFIRM:120;6500:UP:120;7500:CONFIRM:120"
+        # That boot fetches, then shows the rows on Refresh: Up twice to the top shelf, whose
+        # popup lists Discover, Recently added and Want to Read, then the two collections
+        # and the scope, on the collection it shows. Down twice to the scope, then Back.
+        after = ";".join(["9000:UP:120", "9500:UP:120", "10500:CONFIRM:120", "11500:DOWN:120",
+                          "12000:DOWN:120", "13000:CONFIRM:120", "14500:BACK:120"])
+        output = run_simulator(fs, input_script=script, choice="none", timeout_s=40, verbose=verbose,
+                               after_reboot_script=after)
+        assert "Saved 3 shelf options" in output, "Refresh lists did not save both collections and the scope"
+        assert "Home shelves changed: syncing the Home" in output, "leaving the screen did not sync the Home"
+
+        saved = json.loads((fs.crosspoint / "bookorbit.json").read_text())
+        assert saved["homeShelfTop"] == f"{HOME_SHELF_KIND['smart_scope']}:{scope['id']}:{scope['name']}", \
+            f"the top shelf setting is not the scope: {saved['homeShelfTop']}"
+        assert saved["homeShelfBottom"] == f"{HOME_SHELF_KIND['want_to_read']}::", \
+            f"the bottom shelf setting moved: {saved['homeShelfBottom']}"
+        top, bottom = home_snapshot_shelves(fs)
+        assert top["kind"] == HOME_SHELF_KIND["smart_scope"] and top["sourceId"] == str(scope["id"]), \
+            f"the Home sync did not follow the new top shelf: {top}"
+        assert set(top["ids"]) <= scope_ids and len(top["ids"]) == min(4, len(scope_ids)), \
+            f"scope shelf {top['ids']} is not the scope's {scope_ids}"
+        assert bottom["kind"] == HOME_SHELF_KIND["want_to_read"], f"the bottom shelf changed: {bottom}"
+
+
+def scenario_sleep_sync_refreshes_home(verbose: bool) -> None:
+    """Sync on Sleep also refreshes the Home snapshot, but only under the BookOrbit theme."""
+    manifest, _ = load_seed()
+    seeded = manifest["progress"][2]
+    source = INTEGRATION / "library" / seeded["file"]
+    for theme, expected in ((UI_THEME_BOOKORBIT, True), (None, False)):
+        with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp:
+            fs = SimFs(Path(tmp), manifest["kosync"])
+            fs.enable_sync_on_sleep()
+            if theme is not None:
+                settings = json.loads((fs.crosspoint / "crossink-settings.json").read_text())
+                settings["uiTheme"] = theme
+                (fs.crosspoint / "crossink-settings.json").write_text(json.dumps(settings))
+            sim_path = fs.add_book(source)
+            fs.set_open_book(sim_path)
+            write_progress_bin(fs.epub_cache_dir(sim_path) / "progress.bin", 4, 0, 1)
+            output = run_simulator(fs, input_script="6000:POWER:120", choice="none", timeout_s=90, verbose=verbose)
+            assert "Sleep sync over" in output, "sleep sync never ran to its end"
+            refreshed = home_snapshot_header(fs) is not None
+            assert refreshed == expected, f"theme {theme}: Home snapshot written={refreshed}, expected={expected}"
+
+
+def scenario_sleep_sync_failure_keeps_home(verbose: bool) -> None:
+    """A sleep sync that fails for the book leaves the Home snapshot alone: the tile dates
+    the snapshot as the last sync, so refreshing it would report the failed sync as done.
+    The server's progress endpoint fails while its dashboard still answers."""
+    manifest, _ = load_seed()
+    source = INTEGRATION / "library" / manifest["progress"][2]["file"]
+
+    with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp, server_with_failing_progress() as url:
+        fs = SimFs(Path(tmp), manifest["kosync"])
+        fs.enable_sync_on_sleep()
+        bookorbit = json.loads((fs.crosspoint / "bookorbit.json").read_text())
+        bookorbit["serverUrl"] = url
+        (fs.crosspoint / "bookorbit.json").write_text(json.dumps(bookorbit))
+        settings = json.loads((fs.crosspoint / "crossink-settings.json").read_text())
+        settings["uiTheme"] = UI_THEME_BOOKORBIT
+        (fs.crosspoint / "crossink-settings.json").write_text(json.dumps(settings))
+        sim_path = fs.add_book(source)
+        fs.set_open_book(sim_path)
+        write_progress_bin(fs.epub_cache_dir(sim_path) / "progress.bin", 4, 0, 1)
+
+        output = run_simulator(fs, input_script="6000:POWER:120", choice="none", timeout_s=90, verbose=verbose)
+        assert "Restarting into the BookOrbit sleep sync" in output, "sleep did not hand over to the sleep sync"
+        assert "Sleep sync over (state=%d)" % BOOKORBIT_SYNC_FAILED in output, "the sleep sync did not fail"
+        assert home_snapshot_header(fs) is None, "a failed sleep sync wrote a Home snapshot"
+
+
 def scenario_sleep_sync_after_web_open(verbose: bool) -> None:
     """Opening a book in BookOrbit's web reader between two device syncs must not hold
     back the next sleep sync (issue #91). The web reader saves the position it opens
@@ -759,10 +1045,14 @@ def scenario_sleep_sync_cancel(verbose: bool) -> None:
         sim_path = fs.add_book(source)
         fs.set_open_book(sim_path)
         # The 2500 ms press puts the device to sleep, which restarts it into the sleep
-        # sync; the press of the second script lands inside that boot. Woken, the device
-        # stays on its home screen, so the run only ends at the timeout.
+        # sync; the press of the second script lands inside that boot, while the sync
+        # joins Wi-Fi. The simulator samples the button only when the sync checks for a
+        # wake, first as the join ends, and the 20 ms hold completes at a later check, so
+        # the press must be down before the sync's requests start: BookOrbit 3.7.0 answers
+        # them all within the few hundred milliseconds an earlier press would leave.
+        # Woken, the device stays on its home screen, so the run only ends at the timeout.
         output = run_simulator(fs, input_script="2500:POWER:120", choice="none",
-                               timeout_s=14, verbose=verbose, after_reboot_script="300:POWER:600")
+                               timeout_s=14, verbose=verbose, after_reboot_script="100:POWER:600")
         assert "Restarting into the BookOrbit sleep sync" in output, "sleep did not hand over to the sleep sync"
         assert "Sleep sync cancelled: the device was woken" in output, "the press did not cancel the sleep sync"
         cancelled_at = output.index("Sleep sync cancelled")
@@ -837,6 +1127,110 @@ def scenario_highlight_push(verbose: bool) -> None:
         f"pushed highlight not on server; offered texts={[a['text'] for a in adds]}"
 
 
+def offered_annotation_texts(device: KosyncDevice, book_hash: str) -> set[str]:
+    """Every highlight the server offers a never-seen device for a book. The offer comes
+    a page at a time, and acknowledging a page is what lets the next one through."""
+    texts: set[str] = set()
+    for _ in range(50):
+        resp = device.exchange_annotations(book_hash, keys=[], keys_complete=False, changes=[])
+        assert not resp.get("unmatched"), f"server does not know book {book_hash}: {resp}"
+        result = resp["results"][0]
+        adds = result["toApply"]["add"]
+        texts.update(a["text"] for a in adds)
+        if not result.get("more") or not adds:
+            return texts
+        device.exchange_annotations_ack({
+            "deviceId": device.device_id,
+            "deviceModel": device.device_model,
+            "pluginVersion": device.plugin_version,
+            "books": [{"hash": book_hash, "deleted": [], "applied": [
+                {"serverId": a["serverId"], "version": a["version"], "status": "applied"} for a in adds]}],
+        })
+    raise AssertionError(f"the server kept offering pages for book {book_hash}")
+
+
+def scenario_highlight_push_backlog(verbose: bool) -> None:
+    """More highlights than one upload batch reach the server in a single sync, and the
+    watermark ends on the newest. The store lists them out of datetime order, as a clock
+    set back between two highlights leaves it: batches taken in file order would move
+    the watermark past highlights not yet sent, and those would never go."""
+    manifest, books = load_seed()
+    book = books[FRESH_BOOK["highlight_push_backlog"]]
+    now = int(time.time())
+    count = 20  # two full batches of 8, then a partial one
+    clippings, records = [], []
+    for i in range(count):
+        spine, paragraph = (1, i + 1) if i < 10 else (2, i - 9)
+        text = f"Backlog highlight {now} #{i}"
+        clippings.append({"spine": spine, "paragraph": paragraph, "timestamp": 5000 + i,
+                          "text": text, "chapter": "Chapter", "wordCount": len(text.split())})
+        records.append({
+            "timestamp": 5000 + i,
+            # 7 and 20 are coprime, so this is a permutation of the last 20 seconds
+            "identityEpoch": now - count + (i * 7) % count,
+            "spine": spine, "paragraph": paragraph,
+            "pos0": f"/body/DocFragment[{spine + 1}]/body/p[{paragraph}]/text().0",
+            "pos1": f"/body/DocFragment[{spine + 1}]/body/p[{paragraph}]/text().10",
+        })
+
+    with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp:
+        fs, sim_path, _ = make_fs(tmp, manifest, book)
+        write_clipping_store(fs.clippings_store(book["hash"]), book.get("title", ""),
+                             book.get("author", ""), sim_path, clippings)
+        write_boa_store(fs.state_dir(book["hash"]) / ANNOTATION_STORE, 0, records)
+
+        output = run_simulator(fs, input_script="6000:POWER:120", choice="upload",
+                               timeout_s=120, verbose=verbose)
+        assert "sync scenario finished" in output, "sync never reached its end marker"
+        assert f"Highlight batch accepted: {count} of {count} sent" in output, \
+            "the sync did not send the whole backlog"
+        assert f", sent +{count} -0" in output, \
+            "the summary does not count what was sent"
+        watermark, _ = read_boa_store(fs.state_dir(book["hash"]) / ANNOTATION_STORE)
+        newest = max(r["identityEpoch"] for r in records)
+        assert watermark == newest, f"watermark {watermark} is not the newest highlight {newest}"
+
+    offered = offered_annotation_texts(verify_device(manifest, "hlbacklog"), book["hash"])
+    missing = [c["text"] for c in clippings if c["text"] not in offered]
+    assert not missing, f"{len(missing)} of {count} highlights not on the server: {missing}"
+
+
+def scenario_highlight_pull_backlog(verbose: bool) -> None:
+    """More server highlights than one batch reach the device in a single sync: each
+    acknowledged batch makes room for the next pull on the same session. Five share each
+    paragraph, so several land in one paragraph within the same second; each needs a
+    clipping timestamp of its own there, or it would take another's position record."""
+    manifest, books = load_seed()
+    book = books[FRESH_BOOK["highlight_pull_backlog"]]
+    now = int(time.time())
+    count = 20  # two full batches of 8, then a partial one
+    texts = [f"Pulled backlog {now} #{i}" for i in range(count)]
+    changes = []
+    for i, text in enumerate(texts):
+        xpath = f"/body/DocFragment[3]/body/p[{i % 4 + 1}]/text()"
+        changes.append({"datetime": kodatetime(now - count + i), "pos0": f"{xpath}.0",
+                        "pos1": f"{xpath}.{len(text)}", "text": text, "chapter": "Chapter"})
+    peer_device(manifest).exchange_annotations(book["hash"], keys=[], keys_complete=False, changes=changes)
+
+    with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp:
+        fs, _, _ = make_fs(tmp, manifest, book)
+        output = run_simulator(fs, input_script="6000:POWER:120", choice="upload",
+                               timeout_s=120, verbose=verbose)
+        assert "sync scenario finished" in output, "sync never reached its end marker"
+        clippings = read_clipping_store(fs.clippings_store(book["hash"]))
+        # What landed, not `count`: a server that ran this scenario before offers its earlier
+        # highlights again to the fresh device copy, and they land too.
+        assert f"Highlights received +{len(clippings)} -0, sent +0 -0" in output, \
+            "the summary does not count what was received"
+        missing = [t for t in texts if t not in {c["text"] for c in clippings}]
+        assert not missing, f"{len(missing)} of {count} server highlights not on the device: {missing}"
+        refs = [(c["timestamp"], c["spine"], c["paragraph"]) for c in clippings]
+        assert len(set(refs)) == len(refs), f"two clippings share a timestamp in one paragraph: {refs}"
+        _, records = read_boa_store(fs.state_dir(book["hash"]) / ANNOTATION_STORE)
+        assert len(records) == len(clippings), \
+            f"{len(clippings)} clippings but {len(records)} position records"
+
+
 def scenario_highlight_delete_propagates(verbose: bool) -> None:
     """Deleting a synced highlight locally deletes it on the server: the second
     sync's complete key set no longer names it. Two simulator runs on one SD."""
@@ -869,10 +1263,79 @@ def scenario_highlight_delete_propagates(verbose: bool) -> None:
         output = run_simulator(fs, input_script="6000:POWER:120", choice="apply",
                                timeout_s=90, verbose=verbose)
         assert "sync scenario finished" in output, "second sync never finished"
+        assert "Highlights received +0 -0, sent +0 -1" in output, \
+            "the summary does not count the deletion the server applied"
 
     adds = annotation_adds(verify_device(manifest, "hldel"), book["hash"])
     assert not any(a["text"] == text for a in adds), \
         f"deleted highlight still on server: {[a['text'] for a in adds]}"
+
+
+def scenario_highlight_delete_propagates_large(verbose: bool) -> None:
+    """A book with more highlights than the 64 a key set used to be held to still tells the
+    server what was deleted on the device. The key set is written straight into the request
+    body; built as JSON nodes it did not fit beside the TLS session, so it was never sent and
+    a deletion on such a book never reached the server."""
+    manifest, books = load_seed()
+    book = books[FRESH_BOOK["highlight_delete_propagates_large"]]
+    now = int(time.time())
+    count = 80
+    # The server knows a book's highlights by their datetime alone (KOReader's identity), so
+    # a rerun inside `count` seconds of the previous one, dated now - count + i, would land on
+    # that run's datetimes and its highlights would merge into the old ones. A random span in
+    # the past keeps runs apart.
+    first_epoch = now - random.randrange(86400, 365 * 86400)
+    clippings, records = [], []
+    for i in range(count):
+        spine, paragraph = 1 + i // 20, 1 + i % 20
+        text = f"Large book highlight {now} #{i}"
+        clippings.append({"spine": spine, "paragraph": paragraph, "timestamp": 7000 + i,
+                          "text": text, "chapter": "Chapter", "wordCount": len(text.split())})
+        records.append({
+            "timestamp": 7000 + i,
+            "identityEpoch": first_epoch + i,
+            "spine": spine, "paragraph": paragraph,
+            "pos0": f"/body/DocFragment[{spine + 1}]/body/p[{paragraph}]/text().0",
+            "pos1": f"/body/DocFragment[{spine + 1}]/body/p[{paragraph}]/text().10",
+        })
+    doomed = {clippings[3]["text"], clippings[41]["text"]}
+
+    with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp:
+        fs, sim_path, _ = make_fs(tmp, manifest, book)
+        store = fs.clippings_store(book["hash"])
+        write_clipping_store(store, book.get("title", ""), book.get("author", ""), sim_path, clippings)
+        write_boa_store(fs.state_dir(book["hash"]) / ANNOTATION_STORE, 0, records)
+
+        output = run_simulator(fs, input_script="6000:POWER:120", choice="upload",
+                               timeout_s=150, verbose=verbose)
+        assert "sync scenario finished" in output, "first sync never finished"
+        assert f"Highlight batch accepted: {count} of {count} sent" in output, \
+            "setup: the highlights did not all reach the server"
+        assert f"keys={count}," in output, "the first sync did not send its whole key set"
+
+        # Two deleted on the device: their position records stay behind, and the next sync
+        # drops them and reports the shrunken set. Start from the store as the sync left it: on
+        # a server a previous run already used, the first sync also received that run's
+        # highlights, and dropping them here would be deleting them too.
+        held = read_clipping_store(store)
+        write_clipping_store(store, book.get("title", ""), book.get("author", ""), sim_path,
+                             [c for c in held if c["text"] not in doomed])
+
+        output = run_simulator(fs, input_script="6000:POWER:120", choice="upload",
+                               timeout_s=90, verbose=verbose)
+        assert "sync scenario finished" in output, "second sync never finished"
+        assert f"keys={len(held) - 2}," in output, "the second sync did not send its whole key set"
+        assert "deleted on server=2)" in output, "the server did not delete the two highlights"
+        # Only the sent half is this scenario's: on a used server the book can hold more than
+        # the device's 256, and the two freed slots are filled from the server's surplus.
+        assert re.search(r"Highlights received \+\d+ -0, sent \+0 -2\b", output), \
+            "the summary does not count the deletions the server applied"
+
+    offered = offered_annotation_texts(verify_device(manifest, "hldellarge"), book["hash"])
+    kept = {c["text"] for c in clippings} - doomed
+    assert not doomed & offered, f"deleted highlights still on the server: {sorted(doomed & offered)}"
+    missing = kept - offered
+    assert not missing, f"{len(missing)} kept highlights missing from the server: {sorted(missing)[:5]}"
 
 
 def scenario_highlight_delete_guard(verbose: bool) -> None:
@@ -1152,7 +1615,8 @@ def scenario_catalog_empty_listing_back(verbose: bool) -> None:
     """An empty listing (a collection with no books) shows the no-entries error,
     and Back must climb out of it — the regression had the error screen's Back
     reload the very listing it was showing, forever. Proven by navigating onward
-    after the error: the non-empty collection's books still load."""
+    after the error: Back lands on the row it left, the empty collection, and the
+    non-empty collection above it still opens with its books."""
     manifest, _ = load_seed()
     collection = manifest["collection"]
 
@@ -1163,7 +1627,8 @@ def scenario_catalog_empty_listing_back(verbose: bool) -> None:
             "11000:DOWN", "11350:DOWN", "11700:DOWN",     # root -> Collections (4th row,
             "12100:CONFIRM",                              #   after Libraries)
             "14500:DOWN", "14900:CONFIRM",                # Zero Shelf (empty) -> error screen
-            "17500:BACK",                                 # must climb back to the collection list
+            "17500:BACK",                                 # must climb back to the collection list,
+            "19100:UP",                                   #   on Zero Shelf's row
             "19500:CONFIRM",                              # Integration Shelf -> its books
             "22500:QUIT",
         ])
@@ -1477,6 +1942,217 @@ def scenario_catalog_book_actions(verbose: bool) -> None:
         assert not fs.epub_cache_dir(sim_path).exists(), "Delete left the book's cache behind"
 
 
+LISTING_PAGE_LOG = re.compile(r"Listing page (\d+) from (cache|server): (\d+) rows in memory from row (\d+)")
+
+
+def scenario_catalog_deep_listing(verbose: bool) -> None:
+    """Issue #96: a long listing keeps only a window of pages in memory, its rows
+    still numbered from the top of the listing. Walks All books down to its fourth
+    page with Next presses, downloads the book selected there, then walks back up
+    in the download boot. Proves that the rows in memory never exceed three pages,
+    that the download fetched the book the selection was on, that the restored
+    window holds that book's row, and that walking back reloads an earlier page in
+    front of the window from the list cache."""
+    manifest, _ = load_seed()
+    window_rows = 3 * 20  # MAX_WINDOW_PAGES + the page on its way in, of PAGE_SIZE rows
+
+    with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp:
+        fs = SimFs(Path(tmp), manifest["kosync"], download_folder="/Downloads")
+        # 72 Next presses aim at row 72, on page 4. A press that lands while a page
+        # loads can be missed, so the assertions follow the book the log names.
+        presses = [f"{16000 + i * 400}:DOWN" for i in range(72)]
+        script = ";".join([
+            "6000:DOWN", "6500:DOWN", "7000:CONFIRM",     # home menu -> BookOrbit catalog
+            "11000:DOWN", "11350:DOWN", "11700:DOWN",     # root -> All books (8th row)
+            "12050:DOWN", "12400:DOWN", "12750:DOWN",
+            "13100:DOWN",
+            "13450:CONFIRM",
+            *presses,
+            "46000:CONFIRM",                              # the selected book -> download
+            "60000:QUIT",                                 # only reached if no restart dropped it
+        ])
+        # The download boot rebuilds the listing around the book (pages 3 and 4, rows
+        # 40-79), then 45 Previous presses walk back past the window's first row.
+        back = [f"{12000 + i * 400}:UP" for i in range(45)]
+        output = run_simulator(fs, input_script=script, choice="apply", timeout_s=120, verbose=verbose,
+                               after_reboot_script=";".join(back + ["32000:QUIT"]))
+
+        marker = re.search(r"Restarting into the download of book (\d+)", output)
+        assert marker, "the deep listing's download did not restart first"
+        before, resumed = output[:marker.start()], output[marker.end():]
+
+        loads = [(int(p), source, int(rows), int(start)) for p, source, rows, start in LISTING_PAGE_LOG.findall(output)]
+        assert loads, "no listing page load was logged"
+        assert max(rows for _, _, rows, _ in loads) <= window_rows, \
+            f"more than {window_rows} rows were kept in memory: {loads}"
+        browsed = [(p, start) for p, _, _, start in LISTING_PAGE_LOG.findall(before)]
+        assert any(int(p) >= 4 for p, _ in browsed), f"browsing never reached page 4: {browsed}"
+        assert any(int(start) > 0 for _, start in browsed), f"no page ever left the window: {browsed}"
+
+        # The selected book, found by its row in the listing the device cached.
+        caches = [json.loads(p.read_text())
+                  for p in sorted((fs.crosspoint / "bookorbit_lists").glob("*.json"))]
+        pages = sorted((c for c in caches if "total" in c and "sections" not in c and c.get("total", 0) > 60),
+                       key=lambda c: c["page"])
+        listing = [item for page in pages for item in page["items"]]
+        book_id = int(marker.group(1))
+        row = next((i for i, item in enumerate(listing) if item["id"] == book_id), None)
+        assert row is not None and row >= 60, f"the downloaded book {book_id} is not on page 4 or later (row {row})"
+
+        # The path as the firmware sanitized the server's devicePath (a seeded book can
+        # have no author, which leaves an empty folder name the firmware drops).
+        landed = re.search(r"Downloading file \d+ -> (\S.*?) \(free=", resumed)
+        assert landed and (fs.fs / landed.group(1).lstrip("/")).exists(), "the selected book was not downloaded"
+
+        restored = [(int(p), int(rows), int(start)) for p, _, rows, start in LISTING_PAGE_LOG.findall(resumed)]
+        last_restore = max(i for i, (p, _, _) in enumerate(restored) if p == row // 20 + 1)
+        _, rows, start = restored[last_restore]
+        assert start <= row < start + rows, \
+            f"the restored window (rows {start}-{start + rows - 1}) does not hold row {row}"
+        walked_back = restored[last_restore + 1:]
+        assert any(start_row < start for _, _, start_row in walked_back), \
+            f"walking back never put an earlier page in front of the window: {walked_back}"
+
+
+def scenario_catalog_sort_filter(verbose: bool) -> None:
+    """All books is sorted by date added (Left), its direction flipped (Left, then the
+    picker's first row) and filtered to the books being read (Right), the way the
+    Library sorts on a button-only device. Each change refetches the listing with the
+    server doing the work, so the rows must be the server's own answer to the same
+    query. The first book of the result is then downloaded: the restart before the
+    download must bring back that very listing from the list cache. The steps run in
+    that order so that losing any part of the query on the way shows: a lost sort or
+    direction misses the cache, a lost filter brings back a full page of All books.
+    Sorted by date because the seeded books carry no title, author or series
+    metadata, which leaves those orders to the book id both ways."""
+    manifest, _ = load_seed()
+    server = KosyncDevice(BASE_URL, manifest["kosync"]["username"],
+                          manifest["kosync"]["password"], SIM_DEVICE_ID)
+    newest = [i["id"] for i in server.catalog_page(format="epub", sort="recently_added")["items"]]
+    oldest = [i["id"] for i in server.catalog_page(format="epub", sort="recently_added", order="asc")["items"]]
+    reading = server.catalog_page(format="epub", sort="recently_added", order="asc", readStatus="reading")
+    reading_ids = [i["id"] for i in reading["items"]]
+    all_total = server.catalog_page(size=1, format="epub")["total"]
+    # Guards on the fixture itself: an order or a filter that changes nothing proves nothing.
+    assert newest != oldest, "flipping the date order changed nothing"
+    assert 1 < reading["total"] < min(all_total, 20), \
+        f"the reading books do not narrow All books to less than a page: {reading['total']}"
+
+    with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp:
+        fs = SimFs(Path(tmp), manifest["kosync"], download_folder="/Downloads")
+        script = ";".join([
+            "6000:DOWN", "6500:DOWN", "7000:CONFIRM",     # home menu -> BookOrbit catalog
+            "11000:DOWN", "11350:DOWN", "11700:DOWN",     # root -> All books (8th row)
+            "12050:DOWN", "12400:DOWN", "12750:DOWN",
+            "13100:DOWN",
+            "13450:CONFIRM",
+            "16500:LEFT",                                 # sort picker, on Title
+            "17000:UP", "17400:CONFIRM",                  # -> Date Added, newest first
+            "20500:LEFT",                                 # sort picker, on Date Added
+            "21000:UP", "21400:UP", "21800:CONFIRM",      # past List View -> the direction row
+            "24500:RIGHT",                                # filter picker, on All
+            "25000:DOWN", "25400:DOWN", "25800:CONFIRM",  # -> Reading
+            "29000:CONFIRM",                              # the first book -> download
+            "45000:QUIT",                                 # only reached if no restart dropped it
+        ])
+        output = run_simulator(fs, input_script=script, choice="apply", timeout_s=90, verbose=verbose,
+                               after_reboot_script="15000:QUIT")
+
+        caches = [json.loads(p.read_text())
+                  for p in sorted((fs.crosspoint / "bookorbit_lists").glob("*.json"))]
+        # Book cache keys are books|page|sort|readStatus|order|...
+        listings = {tuple(c["key"].split("|")[2:5]): c for c in caches
+                    if c.get("key", "").startswith("books|")}
+        expected = {
+            ("recently_added", "", ""): newest,
+            ("recently_added", "", "asc"): oldest,
+            ("recently_added", "reading", "asc"): reading_ids,
+        }
+        for key, ids in expected.items():
+            assert key in listings, f"never listed sort={key[0]} readStatus={key[1]!r} order={key[2]!r}: {sorted(listings)}"
+            assert [i["id"] for i in listings[key]["items"]] == ids, f"the {key} listing is not the server's"
+        assert listings[("recently_added", "reading", "asc")]["total"] == reading["total"], \
+            "the filtered listing's total is not the server's"
+
+        marker = re.search(r"Restarting into the download of book (\d+)", output)
+        assert marker, "the sorted listing's download did not restart first"
+        assert int(marker.group(1)) == reading_ids[0], \
+            f"downloaded book {marker.group(1)}, not the first of the filtered listing ({reading_ids[0]})"
+        resumed = output[marker.end():]
+        assert re.search(r"Downloading file \d+ -> ", resumed), "the download boot never downloaded the book"
+        # The listing the download boot rebuilds: one page, as many rows as the filter
+        # keeps, from the cache.
+        restored = [(source, int(rows)) for _, source, rows, _ in LISTING_PAGE_LOG.findall(resumed)]
+        assert restored and restored[-1] == ("cache", len(reading_ids)), \
+            f"the download boot rebuilt another listing: {restored} (expected {len(reading_ids)} rows from cache)"
+
+
+WANT_TO_READ_BOOKS = (60, 61)  # library indices outside every seeded range
+
+
+def scenario_catalog_sections_and_shelf(verbose: bool) -> None:
+    """The data behind the catalog's list sections and its Want to Read shelf. All
+    books (sorted by title) keeps, with its first page, where each letter starts, as
+    the server ranks it; Recently added keeps each book's date added for its day
+    headings. Two books marked want to read put a Want to Read row after the server's
+    sections, which lists the server's own shelf. The headings themselves are drawn
+    from this data and are checked on screen, not here."""
+    manifest, books = load_seed()
+    server = KosyncDevice(BASE_URL, manifest["kosync"]["username"],
+                          manifest["kosync"]["password"], SIM_DEVICE_ID)
+    # Searching finds nothing by a filename stem, which is all the seeded books are titled.
+    listed = [item for page in (1, 2)
+              for item in server.catalog_page(page=page, size=100, format="epub", sort="recently_added")["items"]]
+    by_title = {item["title"]: item["id"] for item in listed}
+    marked = []
+    for index in WANT_TO_READ_BOOKS:
+        title = Path(books[index]["file"]).stem
+        assert title in by_title, f"seeded book {title!r} not found on the server"
+        server.set_read_status(by_title[title], "want_to_read")
+        marked.append(by_title[title])
+    letters = server.catalog_page(format="epub", sort="title", buckets="true", size=1)["buckets"]
+    shelf = request_json("GET", server.api("/plugin/catalog/dashboard/sections/want-to-read"),
+                         server._headers(), ok=(200,))["section"]["books"]
+    shelf_ids = [b["id"] for b in shelf if "epub" in [f.lower() for f in b.get("formats", [])]]
+    assert set(marked) <= set(shelf_ids), f"the marked books are not on the shelf: {shelf_ids}"
+
+    with tempfile.TemporaryDirectory(prefix="crossink-integ-") as tmp:
+        fs = SimFs(Path(tmp), manifest["kosync"])  # no open book: boots to home
+        script = ";".join([
+            "6000:DOWN", "6500:DOWN", "7000:CONFIRM",     # home menu -> BookOrbit catalog
+            "13000:DOWN", "13400:CONFIRM",                # Recently added (2nd row)
+            "16500:BACK",
+            "18500:DOWN", "18850:DOWN", "19200:DOWN",     # root -> All books (8th row)
+            "19550:DOWN", "19900:DOWN", "20250:DOWN",
+            "20600:DOWN", "20950:CONFIRM",
+            "24000:BACK",
+            "26000:DOWN", "26350:DOWN", "26700:DOWN",     # root -> Want to Read (9th row)
+            "27050:DOWN", "27400:DOWN", "27750:DOWN",
+            "28100:DOWN", "28450:DOWN", "28800:CONFIRM",
+            "32000:QUIT",
+        ])
+        run_simulator(fs, input_script=script, choice="apply", timeout_s=60, verbose=verbose)
+
+        caches = [json.loads(p.read_text())
+                  for p in sorted((fs.crosspoint / "bookorbit_lists").glob("*.json"))]
+        counts = [c for c in caches if "totalBooks" in c]
+        assert counts and counts[0]["wantToRead"] == len(shelf_ids), \
+            f"Want to Read count {counts and counts[0].get('wantToRead')} != {len(shelf_ids)} shelved EPUBs"
+        # Book cache keys are books|page|sort|readStatus|order|shelf|...
+        listings = {tuple(c["key"].split("|")[1:6]): c for c in caches if c.get("key", "").startswith("books|")}
+        by_title = listings.get(("1", "title", "", "", ""))
+        assert by_title, f"All books was never listed: {sorted(listings)}"
+        assert [[b["key"], b["index"]] for b in letters] == by_title.get("letters"), \
+            f"letters {by_title.get('letters')} != the server's {letters}"
+        recent = listings.get(("1", "recently_added", "", "", ""))
+        assert recent and all(i.get("addedAt", 0) > 0 for i in recent["items"]), \
+            "Recently added rows carry no date added"
+        listed = listings.get(("1", "", "", "", "want-to-read"))
+        assert listed, f"the Want to Read shelf was never listed: {sorted(listings)}"
+        assert [i["id"] for i in listed["items"]] == shelf_ids, \
+            f"shelf {[i['id'] for i in listed['items']]} != the server's {shelf_ids}"
+
+
 def scenario_bookmark_push(verbose: bool) -> None:
     """A local bookmark (store entry + minted position record) reaches the
     server and is offered to a device that has never seen it."""
@@ -1592,18 +2268,30 @@ SCENARIOS = {
     "catalog_smart_scopes_browse": scenario_catalog_smart_scopes_browse,
     "catalog_download_naming": scenario_catalog_download_naming,
     "catalog_book_actions": scenario_catalog_book_actions,
+    "catalog_deep_listing": scenario_catalog_deep_listing,
     "catalog_hides_non_epub": scenario_catalog_hides_non_epub,
+    "catalog_sort_filter": scenario_catalog_sort_filter,
+    "catalog_sections_and_shelf": scenario_catalog_sections_and_shelf,
     "sync_progress_pull": scenario_sync_progress_pull,
     "sync_progress_push": scenario_sync_progress_push,
     "sleep_sync_push": scenario_sleep_sync_push,
+    "sleep_sync_refreshes_home": scenario_sleep_sync_refreshes_home,
+    "sleep_sync_failure_keeps_home": scenario_sleep_sync_failure_keeps_home,
+    "home_theme_refresh": scenario_home_theme_refresh,
+    "home_download_returns_home": scenario_home_download_returns_home,
+    "home_also_reading_link": scenario_home_also_reading_link,
+    "home_shelf_sources": scenario_home_shelf_sources,
     "sleep_sync_after_web_open": scenario_sleep_sync_after_web_open,
     "sleep_sync_conflict": scenario_sleep_sync_conflict,
     "sleep_sync_keeps_progress_reset": scenario_sleep_sync_keeps_progress_reset,
     "sleep_sync_cancel": scenario_sleep_sync_cancel,
     "highlight_pull": scenario_highlight_pull,
     "highlight_push": scenario_highlight_push,
+    "highlight_push_backlog": scenario_highlight_push_backlog,
+    "highlight_pull_backlog": scenario_highlight_pull_backlog,
     "highlight_mint_outside_paragraph": scenario_highlight_mint_outside_paragraph,
     "highlight_delete_propagates": scenario_highlight_delete_propagates,
+    "highlight_delete_propagates_large": scenario_highlight_delete_propagates_large,
     "highlight_delete_guard": scenario_highlight_delete_guard,
     "highlight_delete_all_propagates": scenario_highlight_delete_all_propagates,
     "highlight_note_survives": scenario_highlight_note_survives,

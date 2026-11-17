@@ -23,7 +23,7 @@ Books are laid out again the next time you open them, so the first open is slowe
 
 Each book's cache is tied to the book's location on the SD card. If you move or rename a book on a computer, CrossInk sees it as a new book and it may start with fresh reading progress. Moving a book inside CrossInk (for example, to the Read folder or with the File Browser move actions) keeps its cache and bookmarks.
 
-This fork keeps a book's highlights, bookmarks and BookOrbit sync state (`/.crosspoint/clippings/`, `/.crosspoint/bookmarks/` and `/.crosspoint/book_<contenthash>/`) under a name derived from the book's content, so they survive any move or rename, including ones made over USB or from a computer. Reading progress is written to both homes: the content-keyed copy follows the book through moves, while the path-keyed copy keeps stock CrossInk working after a firmware revert; on read, the further of the two positions wins. A catalog download is also recorded in `/.crosspoint/bookorbit_downloads.bin` (where it landed, for the catalog's on-device marker), and `/.crosspoint/bookorbit_download.json` holds a download waiting out the X3/X4 restart before it.
+This fork also keeps your reading position, bookmarks, clippings and BookOrbit sync state under the book's contents rather than its location (in `.crosspoint/book_<hash>/`, `bookmarks/` and `clippings/`). They follow the book through any move or rename, including one made from a computer or over USB, so a moved book picks up where you left it even though its page layout is rebuilt. The position is also saved in the location-based cache, so stock CrossInk still finds it after a firmware swap; when the two differ, the further one wins.
 
 Reader settings such as font, layout, and reading aids normally come from the global Reader settings. If you change a setting while reading a book, only that setting is saved for that book. Every other setting still follows your global choices. A book's render mode is also saved per book, so a troublesome book can be switched to Balanced or Light rendering from the File Browser or Library long-press menu before you open it.
 
@@ -37,6 +37,20 @@ Backups of your all-time reading stats are kept outside `.crosspoint`, in:
 /.crossink-stats-backup/
 ```
 
+With an updated CrossPoint Sync server, replacing a card or resetting local
+reading stats keeps previously synced cloud history. New reading is added to
+that history. Resetting local stats does not clear your account's history;
+explicit account-data deletion in Sync remains separate. Reading that was never
+synced cannot be recovered from the server.
+
+Update CrossPoint Sync before installing firmware with this protection. Older
+servers report stats as unsupported and the reader keeps pending uploads.
+Full SD backups must include both stats save slots and the daily directory's
+`counter_id.bin` file. Restoring them keeps their original counter identities,
+so resending the restored totals does not count them twice. An older restored
+snapshot resumes the same counters: until they exceed the server's saved totals,
+that counter set's cloud totals stay at the previously reached values.
+
 ## Library
 
 The Library screen lists the books on your SD card. See the [User Guide](./user-guide.md#34-library-screen) for how to search, sort, and use it. This section covers what it saves.
@@ -47,3 +61,17 @@ To make the Library fast, CrossInk keeps an index of your books (titles, authors
 - **Library Settings > Use Book Metadata** chooses between the title and author inside each EPUB and the filename. TXT, Markdown, and XTC files always use the filename.
 - **Date Added** uses the time the file arrived on the card. Some copy tools keep the original file's date, which can change the order.
 - **Recently Opened** shows only books in your reading history (up to 18), newest first. Marking a book unfinished does not add it to the history. Opening it does.
+
+## Copying a card to another reader
+
+Reading stats belong to the reader that recorded them. Copying an SD card or a
+book's cache folder keeps those stats on the card, but another reader starts its
+own local counters and does not upload the copied history as new reading. Moving
+the card back lets the original reader resume its counters. Book files and saved
+reading positions can still be copied as usual.
+
+Before copying a card from older firmware, update the original reader and open a
+book once so CrossInk can record where the existing stats came from. Files copied
+before that step have no origin information; the first updated reader to use them
+will claim them. This change prevents future duplicates and does not automatically
+correct totals already duplicated on the sync server.

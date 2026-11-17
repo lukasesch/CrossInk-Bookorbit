@@ -30,16 +30,17 @@ class SleepActivity final : public Activity {
   bool rendersBeforeExit() const;
 
  private:
-#ifdef SIMULATOR
-  friend struct UpstreamFeatureSmokeTest;
-#endif
   void renderSleepScreen();
   bool rendersQuickResume() const;
   void recordOverlayBackground() const;
   void recordRandomImage() const;
   void loadRedrawRecord();
+#ifdef SIMULATOR
+  friend struct UpstreamFeatureSmokeTest;
+#endif
   void renderDefaultSleepScreen() const;
   void renderCustomSleepScreen() const;
+  bool renderCustomSleepBmp(const std::string& path) const;
   void renderCoverSleepScreen() const;
   void renderReadingStatsSleepScreen() const;
   void renderMinimalSleepScreen() const;

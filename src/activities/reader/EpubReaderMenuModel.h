@@ -154,7 +154,7 @@ enum class ReaderDrawerCatalogItem : uint8_t {
   SyncProgress,
   NearbyPositionSync,
   SendNearbyBook,
-  BookOrbitSync,  // this fork's provider, alongside upstream's SyncProgress
+  BookOrbitSync,  // this fork's provider, alongside upstream's KOReader SyncProgress
 };
 
 struct ReaderDrawerAvailability {

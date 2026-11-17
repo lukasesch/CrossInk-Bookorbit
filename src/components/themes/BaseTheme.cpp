@@ -1,16 +1,19 @@
 #include "BaseTheme.h"
 
+#include <Bitmap.h>
 #include <FreeInkUIGfxRenderer.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
+#include <HalScreenCalibration.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -184,10 +187,6 @@ void BaseTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
                                        TouchRegistry::Button);
       renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
       renderer.drawRect(x, pageHeight - buttonY, buttonWidth, buttonHeight);
-    } else if (labels[i] != nullptr) {
-      // Fast refreshes retain the previous hint pixels. Clear a label that was
-      // present on the last screen before leaving this button slot inactive.
-      renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
     }
   }
 
@@ -442,6 +441,9 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   props.subtitleText = tokens.smallText;
   props.styles = tokens.popup;
   props.sidePadding = tokens.headerSidePadding;
+  // Extend the decoration to the panel edges without moving safe-area content.
+  props.bleed.left = static_cast<int16_t>(rect.x);
+  props.bleed.right = static_cast<int16_t>(renderer.getScreenWidth() - rect.x - rect.width);
   const bool batteryDetached = metrics.headerBatteryDetached;
   if (batteryDetached) {
     const int titleLineHeight = ui.target.lineHeight(fui::GfxRendererTarget::FONT_TITLE);
@@ -867,6 +869,9 @@ void BaseTheme::drawReaderStatusBar(const GfxRenderer& renderer, const ReaderSta
 
   int marginTop, marginRight, marginBottom, marginLeft;
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
+  const auto corners = renderer.getViewableInsets().corners(static_cast<unsigned>(renderer.getOrientation()));
+  marginLeft = std::max(marginLeft, corners[top ? 0 : 3]);
+  marginRight = std::max(marginRight, corners[top ? 1 : 2]);
   const int screenWidth = renderer.getScreenWidth();
   const int edgeY = content.previewOriginY >= 0
                         ? content.previewOriginY
@@ -1363,7 +1368,16 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
       }
 
       const auto style = primaryOptionIndex == optionIndex ? EpdFontFamily::BOLD : optionStyle;
-      const int textW = renderer.getTextWidth(optionFontId, labelText, style);
+      // The dialog stops at the screen's margins: a longer label, such as a BookOrbit
+      // collection's name, ends in an ellipsis instead of running over the frame.
+      int textW = renderer.getTextWidth(optionFontId, labelText, style);
+      std::string fitted;
+      const int maxTextW = std::max(1, itemRectW - selectionHPadding * 2);
+      if (textW > maxTextW) {
+        fitted = renderer.truncatedText(optionFontId, labelText, maxTextW, style);
+        labelText = fitted.c_str();
+        textW = renderer.getTextWidth(optionFontId, labelText, style);
+      }
       const int textY = itemY + (rowHeight - optionLineHeight) / 2;
       const int textX = itemRectX + (itemRectW - textW) / 2;
       // Unselected items: text is dark (invert=true means draw on white bg).
@@ -1404,4 +1418,17 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
     }
 #endif
   }
+}
+
+Rect fittedBitmapRect(const Bitmap& bitmap, const Rect& target) {
+  if (bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0 || target.width <= 0 || target.height <= 0) {
+    return target;
+  }
+
+  const float widthScale = static_cast<float>(target.width) / static_cast<float>(bitmap.getWidth());
+  const float heightScale = static_cast<float>(target.height) / static_cast<float>(bitmap.getHeight());
+  const float scale = std::min(1.0f, std::min(widthScale, heightScale));
+  const int drawnW = std::min(target.width, std::max(1, static_cast<int>(std::ceil(bitmap.getWidth() * scale))));
+  const int drawnH = std::min(target.height, std::max(1, static_cast<int>(std::ceil(bitmap.getHeight() * scale))));
+  return Rect{target.x + (target.width - drawnW) / 2, target.y + (target.height - drawnH) / 2, drawnW, drawnH};
 }

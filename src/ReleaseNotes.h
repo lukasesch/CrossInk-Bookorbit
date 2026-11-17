@@ -11,7 +11,8 @@
 constexpr uint16_t RELEASE_NOTES_REVISION = 1;
 // Label shown in the header. Deliberately not CROSSINK_VERSION, so a patch build keeps the notes' label.
 constexpr char RELEASE_NOTES_VERSION[] = "2.0.0";
-constexpr char RELEASE_NOTES_CHANGELOG_URL[] = "github.com/uxjulia/CrossInk/releases";
+// This fork's releases page, not upstream's.
+constexpr char RELEASE_NOTES_CHANGELOG_URL[] = "github.com/agosez/CrossInk-Bookorbit/releases";
 
 constexpr size_t RELEASE_NOTES_MAX_PATH = 5;
 

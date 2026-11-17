@@ -81,7 +81,7 @@ for language in catalog["languages"]:
     assert cache_bytes <= 65536
     assert len(data) <= 262144 and all(len(line) <= 2047 for line in data.split(b"\n"))
 assert not unsafe, f"Community translations contain invalid printf contracts: {unsafe}"
-assert len([item for item in catalog["languages"] if "translation" in item]) == 27
+assert len([item for item in catalog["languages"] if "translation" in item]) == 28
 
 # The exported budget is the production on-flash layout, not just text length.
 header = (root / "lib/LanguageCache/LanguageCache.h").read_text()
@@ -154,8 +154,9 @@ for workflow in ["release.yml", "release_candidate.yml"]:
     assert '--source-commit "${{ github.sha }}" --status release-build' in text
     assert '/language-template/english_template.yaml' in text
     assert '/language-template/language-template.json' in text
-# This fork ships the template as release assets only (checked above): it does not
-# publish upstream's GitHub Pages copy, which needs upstream's signing key.
+# Upstream also copies the template to its GitHub Pages source; this fork attaches it to
+# the release only (see release.yml).
+assert "--template-output-dir \"release-firmware/language-template\"" in (root / ".github/workflows/release.yml").read_text()
 assert "copyDirectoryWithoutMacMetadata" in (root / "site/scripts/sync_site_assets.mjs").read_text()
 assert "docs/languages/template" in (root / "site/scripts/sync_site_assets.mjs").read_text()
 print("Language editor contract passed: exact source/keyset/template hashes, parser limits, schema, immutable normalized starters and release artifacts")

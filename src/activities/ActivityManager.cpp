@@ -6,6 +6,7 @@
 #include <HalScalableFont.h>
 #endif
 
+#include <BoardConfig.h>
 #include <CrossInkHalFrontlight.h>
 #include <Epub.h>
 #include <FontCacheManager.h>
@@ -21,6 +22,8 @@
 
 #include <algorithm>
 
+#include "AppCapabilities.h"
+#include "BookOrbitCredentialStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "FilenameFontSystem.h"
@@ -32,6 +35,7 @@
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/BookOrbitCatalogBrowserActivity.h"
+#include "browser/BookOrbitCatalogListCache.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/TouchRegistry.h"
 #include "home/AlertActivity.h"
@@ -62,14 +66,6 @@
 namespace {
 constexpr uint32_t FILE_TRANSFER_MODE_MASK = 0xFF;
 constexpr uint32_t FILE_TRANSFER_RETURN_TO_READER = 1U << 8;
-
-constexpr bool hasStickyReaderDetailsPanel() {
-#if defined(FREEINK_DEVICE_STICKY) && FREEINK_DEVICE_STICKY
-  return true;
-#else
-  return false;
-#endif
-}
 
 uint32_t fileTransferBootPayload(const NetworkMode mode, const bool returnToReader) {
   return static_cast<uint32_t>(mode) | (returnToReader ? FILE_TRANSFER_RETURN_TO_READER : 0);
@@ -110,8 +106,7 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
     context.bookPath = currentPath;
     context.activeEpub = activity.isEpubReaderActivity() && currentEpubValid;
     if (activity.getFrontlightPanelBookDetails(context.bookDetails)) {
-      context.showReaderDetails =
-          shouldShowStickyReaderDetails(hasStickyReaderDetailsPanel(), Frontlight.present(), context.activeReaderBook);
+      context.showReaderDetails = shouldShowReaderDetails(Frontlight.present(), context.activeReaderBook);
       context.bookTitle = context.bookDetails.title;
     }
     if (context.showReadingStatsAction) context.readingStatsActivity = activity.createFrontlightReadingStatsActivity();
@@ -165,6 +160,9 @@ FrontlightPanelContext buildFrontlightPanelContext(Activity& activity, GfxRender
 bool openFrontlightPanel(Activity& activity, GfxRenderer& renderer, MappedInputManager& mappedInput,
                          const FrontlightDrawerState* restoredState = nullptr) {
   FrontlightPanelContext context = buildFrontlightPanelContext(activity, renderer, mappedInput);
+  // An unavailable/missing reader book must not fall back to light controls on
+  // a device without a frontlight.
+  if (!Frontlight.present() && !context.showReaderDetails) return false;
   if (restoredState) context.drawerState = *restoredState;
   auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput, std::move(context));
   if (!panel) {
@@ -470,6 +468,9 @@ bool applyTwoFingerRotation(Activity& activity, MappedInputManager& mappedInput)
 }  // namespace
 
 void ActivityManager::begin(const uint32_t renderTaskStackBytes) {
+#if CROSSINK_APP_CAP_TOUCH
+  touchHardwareAvailable = mappedInput.hasTouchHardware();
+#endif
 #if CROSSINK_SCALABLE_FONTS
   ScalableFontAccess::configure(renderingMutex);
 #endif
@@ -509,7 +510,7 @@ void ActivityManager::renderTaskLoop() {
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
       // Apply Night Mode to each activity's normal-polarity frame. SleepActivity
-      // preserves it only for Quick Resume and clears it for other sleep screens.
+      // preserves it for retained pages and clears it for generated sleep screens.
       display.setInverted(SETTINGS.screenInverted != 0);
 #if defined(CROSSINK_LANGUAGE_BENCHMARK)
       language_benchmark::beginFrame(currentActivity->name.c_str());
@@ -548,6 +549,15 @@ void ActivityManager::loop() {
   }
 
 #if CROSSINK_APP_CAP_TOUCH
+  // Touch firmware can finish loading after the first wake render (EEGO A4).
+  // Rebuild the screen and its touch targets when readiness changes, without
+  // waiting for a navigation action or delaying the rest of boot.
+  const bool touchAvailable = mappedInput.hasTouchHardware();
+  if (touchHardwareAvailable != touchAvailable) {
+    touchHardwareAvailable = touchAvailable;
+    LOG_INF("ACT", "Touch hardware %s; refreshing activity", touchAvailable ? "ready" : "unavailable");
+    requestUpdate();
+  }
   if (edgeLightSwipe.active && edgeLightSwipe.owner != currentActivity.get())
     finishLiveLightSwipe(edgeLightSwipe, *this);
   if (twoFingerLightSwipe.tracking && twoFingerLightSwipe.owner != currentActivity.get())
@@ -601,11 +611,10 @@ void ActivityManager::loop() {
       const bool lightPanelGesture = currentActivity->usesFullScreenReaderVerticalSwipes()
                                          ? mappedInput.wasReaderLightPanelGesture()
                                          : mappedInput.wasLightPanelGesture();
-      if (supportsFrontlightDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
-                                   hasStickyReaderDetailsPanel()) &&
+      if (supportsReaderTopDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
+                                  currentActivity->isReaderActivity()) &&
           currentActivity->name != "FrontlightPanel" && currentActivity->allowFrontlightPanelGesture() &&
-          lightPanelGesture) {
-        openFrontlightPanel(*currentActivity, renderer, mappedInput);
+          lightPanelGesture && openFrontlightPanel(*currentActivity, renderer, mappedInput)) {
         return;
       }
       // Note: do not hold a lock here, the loop() method must be responsible for acquire one if needed
@@ -617,6 +626,10 @@ void ActivityManager::loop() {
     mappedInput.setPowerAsConfirmInReaderMode(false);
   }
 
+  processPendingActivities();
+}
+
+void ActivityManager::processPendingActivities() {
   // A deferred full-stack replace waits until its requester has popped and every
   // result handler has settled, then runs as an ordinary Replace.
   while (pendingAction != PendingAction::None || (afterReturnActivity && afterReturnOwnerExited)) {
@@ -762,8 +775,8 @@ void ActivityManager::loop() {
             PendingOverlayResume consumed;
             APP_STATE.consumePendingOverlayResume(consumed);
           } else if (resume.overlay == PendingOverlayType::FrontlightDrawer &&
-                     supportsFrontlightDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
-                                              hasStickyReaderDetailsPanel())) {
+                     supportsReaderTopDrawer(mappedInput.hasTouchHardware(), Frontlight.present(),
+                                             currentActivity->isReaderActivity())) {
             FrontlightDrawerState restoredState;
             restoredState.selectedAction = static_cast<int8_t>(resume.selectedIndex);
             if (openFrontlightPanel(*currentActivity, renderer, mappedInput, &restoredState)) {
@@ -1073,16 +1086,30 @@ void ActivityManager::goToLibrary() {
   replaceActivity(std::move(library));
 }
 
-void ActivityManager::goToPlugins() {
+bool ActivityManager::goToPlugins(const bool networkBootReady) {
+#ifndef SIMULATOR
+  if (!networkBootReady) {
+    // Hub installation and catalog parsing need the same clean heap as OPDS.
+    silentRestartToNetwork(NetworkBootTarget::PLUGINS);
+    return true;
+  }
+#else
+  (void)networkBootReady;
+#endif
   auto plugins = makeUniqueNoThrow<PluginCatalogActivity>(renderer, mappedInput, true);
   if (!plugins) {
-    LOG_ERR("ACT", "Cannot allocate Plugins activity");
-    return;
+    LOG_ERR("ACT", "Cannot allocate Plugins activity (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    return false;
   }
   replaceActivity(std::move(plugins));
+  return true;
 }
 
 void ActivityManager::goToBrowser() {
+#if !CROSSINK_APP_CAP_OPDS
+  LOG_ERR("ACT", "OPDS browser not in this build");
+  return;
+#else
   const auto& servers = OPDS_STORE.getServers();
   // Skip the server picker when there's only one server configured
   if (servers.size() == 1) {
@@ -1090,13 +1117,47 @@ void ActivityManager::goToBrowser() {
   } else {
     replaceActivity(std::make_unique<OpdsServerListActivity>(renderer, mappedInput, true));
   }
+#endif
 }
 
-bool ActivityManager::goToBookOrbitCatalog(const bool resumeDownload) {
+bool ActivityManager::goToBookOrbitCatalog(const bool networkBootReady, const bool resumeDownload) {
+#if FREEINK_MCU_C3 && !defined(SIMULATOR)
+  // Like OPDS: browse from a minimal network boot, whose heap still has the 16 KB
+  // blocks the catalog's TLS records need page after page (issue #96). Without an
+  // account the browser only shows the setup hint, which needs no restart. The
+  // desktop build has no fragmented heap to clear, and its integration scenarios
+  // drive one restart at most, the download's.
+  if (!networkBootReady && BOOKORBIT_STORE.hasCredentials()) {
+    silentRestartToNetwork(NetworkBootTarget::BOOKORBIT_CATALOG);
+    return true;
+  }
+#endif
   // Replace (not push): clearing the activity stack under the browser frees the
   // 15-20KB of headroom the TLS session needs on the C3 (see .claude/CONTEXT.md).
   // The browser exits via goHome, so there is no stack to return to.
-  auto browser = makeUniqueNoThrow<BookOrbitCatalogBrowserActivity>(renderer, mappedInput, resumeDownload);
+  auto browser =
+      makeUniqueNoThrow<BookOrbitCatalogBrowserActivity>(renderer, mappedInput, networkBootReady, resumeDownload);
+  if (!browser) {
+    LOG_ERR("ACT", "OOM: BookOrbit catalog (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+    return false;
+  }
+  replaceActivity(std::move(browser));
+  return true;
+}
+
+bool ActivityManager::goToBookOrbitCatalog(BookOrbitCatalogLink link) {
+#if FREEINK_MCU_C3 && !defined(SIMULATOR)
+  // The same network boot as goToBookOrbitCatalog(); the browser it starts reads the
+  // link back. If the link cannot be saved, the catalog opens in place as before.
+  if (BOOKORBIT_STORE.hasCredentials() && BookOrbitCatalogListCache::saveEntryLink(link)) {
+    silentRestartToNetwork(NetworkBootTarget::BOOKORBIT_CATALOG);
+    // Only returns when deep sleep is already under way, which ends this session anyway.
+    BookOrbitCatalogListCache::discardEntryLink();
+    return true;
+  }
+#endif
+  auto browser =
+      makeUniqueNoThrow<BookOrbitCatalogBrowserActivity>(renderer, mappedInput, false, false, std::move(link));
   if (!browser) {
     LOG_ERR("ACT", "OOM: BookOrbit catalog (free=%u maxAlloc=%u)", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
     return false;
@@ -1114,6 +1175,13 @@ void ActivityManager::goToBookOrbitAuth() {
 }
 
 bool ActivityManager::goToOpdsServer(const uint32_t serverIndex, const bool networkBootReady) {
+#if !CROSSINK_APP_CAP_OPDS
+  // Also reached by an OPDS network boot armed by an earlier build: Home takes over.
+  (void)serverIndex;
+  (void)networkBootReady;
+  LOG_ERR("ACT", "OPDS browser not in this build");
+  return false;
+#else
 #ifndef SIMULATOR
   if (!networkBootReady) {
     silentRestartToNetwork(NetworkBootTarget::OPDS, serverIndex);
@@ -1141,13 +1209,16 @@ bool ActivityManager::goToOpdsServer(const uint32_t serverIndex, const bool netw
   }
   replaceActivity(std::move(browser));
   return true;
+#endif
 }
 
 void ActivityManager::goToReader(std::string path, const bool suppressBackRelease, const bool allowFastInitialRefresh,
                                  const bool cleanImageBaseOnEntry, const bool keepWakeFrame) {
+#if CROSSINK_APP_CAP_OPDS
   // OPDS credentials are unrelated to local reading and may contain several
   // heap-backed strings. Home reloads them lazily when it becomes active.
   OPDS_STORE.release();
+#endif
   replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), suppressBackRelease,
                                                    allowFastInitialRefresh, cleanImageBaseOnEntry, keepWakeFrame));
 }
@@ -1196,7 +1267,10 @@ void ActivityManager::goToSleep(bool fromTimeout, bool recordForRedraw) {
     return;
   }
   replaceActivity(std::move(sleepActivity));
-  loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
+  // Input capture has stopped. Do not poll the outgoing reader again: the
+  // fallback input state can still contain the Power hold from boot, turning a
+  // short sleep press into a reader long-press shortcut. onExit still saves it.
+  processPendingActivities();  // Sleep renders synchronously in onEnter before the caller powers down.
 }
 
 void ActivityManager::goToBoot() { replaceActivity(std::make_unique<BootActivity>(renderer, mappedInput)); }

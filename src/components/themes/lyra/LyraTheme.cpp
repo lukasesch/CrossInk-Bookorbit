@@ -411,9 +411,7 @@ void LyraTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       renderer.drawRoundedRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, 1, cornerRadius, true, true, false,
                                false, true);
     } else if (labels[i] != nullptr) {
-      // Clear the previous full-sized hint before drawing the inactive marker.
-      // Dictionary chaining can otherwise leave its old label visible.
-      renderer.fillRect(x, pageHeight - buttonY, buttonWidth, buttonHeight, false);
+      // The caller restores the background when hints change; only cover the small marker.
       const int smallButtonY = pageHeight - smallButtonHeight - UITheme::getButtonHintsBottomInset(renderer);
       renderer.fillRoundedRect(x, smallButtonY, buttonWidth, smallButtonHeight, cornerRadius, Color::White);
       renderer.drawRoundedRect(x, smallButtonY, buttonWidth, smallButtonHeight, 1, cornerRadius, true, true, false,
@@ -641,14 +639,19 @@ void LyraTheme::drawEmptyRecents(const GfxRenderer& renderer, const Rect rect) c
   renderer.drawText(UI_10_FONT_ID, rect.x + padding, rect.y + rect.height / 2 + 2, tr(STR_START_READING), true);
 }
 
+int LyraTheme::menuPageItems(const Rect& rect) {
+  const auto& menuMetrics = UITheme::getInstance().getMetrics();
+  const int rowStep = menuMetrics.menuRowHeight + menuMetrics.menuSpacing;
+  return std::clamp((rect.height + menuMetrics.menuSpacing) / rowStep, 1, kMenuPageItems);
+}
+
 void LyraTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<const char*(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>& rowIcon) const {
   const auto& menuMetrics = UITheme::getInstance().getMetrics();
 
-  constexpr int maxVisibleItems = kMenuPageItems;
   const int rowStep = menuMetrics.menuRowHeight + menuMetrics.menuSpacing;
-  const int pageItems = std::clamp((rect.height + menuMetrics.menuSpacing) / rowStep, 1, maxVisibleItems);
+  const int pageItems = menuPageItems(rect);
   const int totalPages = (buttonCount + pageItems - 1) / pageItems;
 
   if (totalPages > 1) {
