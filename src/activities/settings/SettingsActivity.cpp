@@ -388,6 +388,9 @@ void SettingsActivity::rebuildSettingsLists() {
   systemFilesCacheSettings = buildSystemFilesCacheSettingsList(allSettings);
   systemReadingStatsSettings = buildSystemReadingStatsSettingsList(allSettings);
   systemGlobalStatsSettings = buildSystemGlobalStatsSettingsList(allSettings);
+#if CROSSINK_APP_PICCO_UI
+  rebuildPiccoLists(allSettings);
+#endif
   controlsSettings = buildControlsSettingsParentList(allSettings);
   controlsPowerSettings = buildControlsPowerSettingsList(allSettings);
   controlsHomeButtonSettings = buildControlsHomeButtonSettingsList(allSettings);
@@ -437,6 +440,13 @@ void SettingsActivity::setCurrentSettingsForCategory() {
     settingsCount = static_cast<int>(currentSettings->size());
     return;
   }
+#if CROSSINK_APP_PICCO_UI
+  if (usesPiccoSettings() && piccoRoot) {
+    currentSettings = &piccoRootSettings;
+    settingsCount = static_cast<int>(currentSettings->size());
+    return;
+  }
+#endif
 
   switch (selectedCategoryIndex) {
     case 0:
@@ -520,6 +530,11 @@ void SettingsActivity::setCurrentSettingsForCategory() {
 
 void SettingsActivity::enterCategory(int categoryIndex) {
   selectedCategoryIndex = categoryIndex;
+#if CROSSINK_APP_PICCO_UI
+  piccoRoot = false;
+  piccoDirectSubmenu = SettingAction::None;
+  piccoFollowSelection = true;
+#endif
   activeSubmenu = SettingAction::None;
   parentSubmenu = SettingAction::None;
   setCurrentSettingsForCategory();
@@ -634,28 +649,32 @@ void SettingsActivity::openEnumOptionPicker(const SettingInfo& setting) {
   } else if (setting.valuePtr == &CrossPointSettings::sideButtonChordAction && mappedInput.hasTouchHardware()) {
     note = {tr(STR_NOTE), tr(STR_TOUCHSCREEN_ESCAPE_HATCH_NOTE)};
   }
-  optionPopup.show(
-      setting.nameId, options, currentIndex,
-      [this, selectedSetting](int selectedIndex) {
-        if (selectedSetting.valuePtr != nullptr) {
-          SETTINGS.*(selectedSetting.valuePtr) =
-              enumRawValueForDisplayIndex(selectedSetting, static_cast<uint8_t>(selectedIndex));
-          if (isTwoFingerSwipeSetting(selectedSetting.valuePtr)) {
-            CrossPointSettings::normalizeTwoFingerSwipeActions(SETTINGS, selectedSetting.valuePtr);
-          }
-          QuickActions::settingChanged(SETTINGS, selectedSetting.valuePtr);
-        } else if (selectedSetting.valueSetter) {
-          selectedSetting.valueSetter(static_cast<uint8_t>(selectedIndex));
-        }
+  auto onSelect = [this, selectedSetting](int selectedIndex) {
+    if (selectedSetting.valuePtr != nullptr) {
+      SETTINGS.*(selectedSetting.valuePtr) =
+          enumRawValueForDisplayIndex(selectedSetting, static_cast<uint8_t>(selectedIndex));
+      if (isTwoFingerSwipeSetting(selectedSetting.valuePtr)) {
+        CrossPointSettings::normalizeTwoFingerSwipeActions(SETTINGS, selectedSetting.valuePtr);
+      }
+      QuickActions::settingChanged(SETTINGS, selectedSetting.valuePtr);
+    } else if (selectedSetting.valueSetter) {
+      selectedSetting.valueSetter(static_cast<uint8_t>(selectedIndex));
+    }
 
-        const bool sleepScreenChanged = selectedSetting.valuePtr == &CrossPointSettings::sleepScreen;
-        const bool quickResumeTimeoutChanged = selectedSetting.valuePtr == &CrossPointSettings::quickResumeSleepScreen;
-        syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
-        SETTINGS.saveToFile();
-        rebuildSettingsLists();
-        requestUpdate();
-      },
-      note);
+    const bool sleepScreenChanged = selectedSetting.valuePtr == &CrossPointSettings::sleepScreen;
+    const bool quickResumeTimeoutChanged = selectedSetting.valuePtr == &CrossPointSettings::quickResumeSleepScreen;
+    syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
+    SETTINGS.saveToFile();
+    rebuildSettingsLists();
+    requestUpdate();
+  };
+#if CROSSINK_APP_PICCO_UI
+  if (usesPiccoSettings()) {
+    openPiccoPicker(setting.nameId, std::move(options), currentIndex, std::move(onSelect), note.body);
+    return;
+  }
+#endif
+  optionPopup.show(setting.nameId, options, currentIndex, std::move(onSelect), note);
   if (setting.valuePtr == &CrossPointSettings::menuNavigation) {
     menuNavigationNote.apply(optionPopup);
   }
@@ -1089,6 +1108,12 @@ void SettingsActivity::onEnter() {
   selectedSettingIndex = 0;
   activeSubmenu = SettingAction::None;
   parentSubmenu = SettingAction::None;
+#if CROSSINK_APP_PICCO_UI
+  piccoRoot = usesPiccoSettings();
+  piccoFocus = false;
+  piccoFollowSelection = true;
+  piccoPage = 0;
+#endif
   if (!isFileBrowserView()) {
     preserveQuickResumeTimeoutOn =
         SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT;
@@ -1272,6 +1297,12 @@ void SettingsActivity::loop() {
     return;
   }
   if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
+#if CROSSINK_APP_PICCO_UI
+  if (usesPiccoSettings()) {
+    piccoLoop();
+    return;
+  }
+#endif
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   if (TouchHeaderBackButton::wasTapped(mappedInput, renderer, settingsHeaderTitle(isFileBrowserView()))) {
@@ -1442,6 +1473,10 @@ bool SettingsActivity::handleHomeGesture() {
     onGoHome();
   } else if (optionPopup.isActive()) {
     optionPopup.dismiss(mappedInput, [this] { requestUpdate(); });
+#if CROSSINK_APP_PICCO_UI
+  } else if (usesPiccoSettings()) {
+    piccoBack();
+#endif
   } else if (!isFileBrowserView() && activeSubmenu != SettingAction::None) {
     closeSubmenu();
     requestUpdate();
@@ -1463,6 +1498,9 @@ void SettingsActivity::toggleCurrentSetting() {
 
   const auto& setting = (*currentSettings)[selectedSetting];
   if (isPageGestureSettingDisabled(setting)) return;
+#if CROSSINK_APP_PICCO_UI
+  if (openPiccoRootRow(setting)) return;
+#endif
   const bool sleepScreenChanged = setting.valuePtr == &CrossPointSettings::sleepScreen;
   const bool quickResumeTimeoutChanged = setting.valuePtr == &CrossPointSettings::quickResumeSleepScreen;
 
@@ -1755,6 +1793,10 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::SystemGlobalStats:
       case SettingAction::DisplaySleepScreen:
       case SettingAction::DisplayFrontlight:
+      case SettingAction::PiccoReading:
+      case SettingAction::PiccoDisplay:
+      case SettingAction::PiccoControls:
+      case SettingAction::PiccoSystem:
       case SettingAction::None:
         // Do nothing
         break;
@@ -2166,6 +2208,13 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
 
 void SettingsActivity::render(RenderLock&&) {
   if (optionPopup.processRender(renderer, mappedInput)) return;
+#if CROSSINK_APP_PICCO_UI
+  if (usesPiccoSettings()) {
+    uiReady = false;
+    renderPicco();
+    return;
+  }
+#endif
 
   renderer.clearScreen();
 

@@ -10,12 +10,17 @@
 #include <string>
 #include <vector>
 
+#include "AppCapabilities.h"
 #include "CrossPointSettings.h"
 #include "FilenameFontSystem.h"
 #include "activities/Activity.h"
 #include "components/MenuNavigationNote.h"
 #include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoPagedList.h"
+#include "components/picco/PiccoSettingsRows.h"
+#endif
 
 enum class SettingType { TOGGLE, ENUM, ACTION, VALUE, STRING, SECTION_HEADER, SUBMENU };
 
@@ -65,6 +70,11 @@ enum class SettingAction {
   TtfRendering,
   ClockSync,
   FrontlightPanel,
+  // Picco root rows (never persisted): open a category page.
+  PiccoReading,
+  PiccoDisplay,
+  PiccoControls,
+  PiccoSystem,
 };
 
 struct SettingInfo {
@@ -241,6 +251,7 @@ class SettingsActivity final : public Activity {
   friend struct ScreenCalibrationSmokeTest;
   friend struct ReaderDrawerLayoutSmokeTest;
   friend struct PiccoScreensSmokeTest;
+  friend struct PiccoScreens4B;
 #endif
 #ifdef SIMULATOR
   friend struct AssetDownloadSmokeTest;
@@ -368,6 +379,47 @@ class SettingsActivity final : public Activity {
   void closeRootSettings();
   void finishToParent();
   bool isFileBrowserView() const { return view == View::FileBrowser; }
+
+#if CROSSINK_APP_PICCO_UI
+  // Picco: grouped root (Reading / Device / Connections) instead of the four tabs, hand-drawn
+  // paged rows (SettingsActivityPicco.cpp). Category pages reuse the lists above.
+  static constexpr int kPiccoMaxPages = 16;
+  std::vector<SettingInfo> piccoRootSettings;
+  bool piccoRoot = false;
+  bool piccoFocus = false;           // rocker focus frame shown
+  bool piccoFollowSelection = true;  // next render shows the selection's page
+  int piccoPage = 0;                 // written by render, read by loop
+  int piccoPageCount = 1;
+  int16_t piccoPageStarts[kPiccoMaxPages] = {};
+  SettingAction piccoDirectSubmenu = SettingAction::None;  // a submenu the root opened directly
+  StrId piccoDirectTitle = StrId::STR_NONE_OPT;
+  bool usesPiccoSettings() const;
+  void rebuildPiccoLists(const std::vector<SettingInfo>& allSettings);
+  bool openPiccoRootRow(const SettingInfo& setting);
+  void selectFirstPiccoRow();
+  const char* piccoTitle() const;
+  void piccoBack();
+  void piccoLoop();
+  void renderPicco();
+  // Full-page option picker (T_OptionPicker) in place of the option popup.
+  struct PiccoPicker {
+    bool open = false;
+    StrId title = StrId::STR_NONE_OPT;
+    std::vector<std::string> options;
+    int current = 0;
+    std::function<void(int)> onSelect;
+    const char* note = nullptr;
+  };
+  PiccoPicker piccoPicker;
+  void openPiccoPicker(StrId title, std::vector<std::string> options, int current, std::function<void(int)> onSelect,
+                       const char* note);
+  void closePiccoPicker();
+  int piccoPickerSelected = 0;
+  void piccoListInput(int count, int& selected, const std::function<bool(int)>& isRow,
+                      const std::function<void()>& activate, const std::function<void()>& back);
+  void drawPiccoList(const char* title, const PiccoSettingsRows::Row* rows, int count, int selected, const char* note,
+                     bool versionFooter);
+#endif
 
  public:
   explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool dismissOnUpSwipe = false,

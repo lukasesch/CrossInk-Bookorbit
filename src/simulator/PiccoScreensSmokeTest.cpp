@@ -17,6 +17,7 @@
 #include "AppCapabilities.h"
 #include "BookOrbitCredentialStore.h"
 #include "CrossPointSettings.h"
+#include "PiccoScreens4B.h"
 #include "activities/ActivityManager.h"
 #include "activities/boot_sleep/SleepActivity.h"
 #include "activities/home/HomeActivity.h"
@@ -366,6 +367,8 @@ struct PiccoScreensSmokeTest {
       }
       return 0;
     });
+
+    addPiccoScreens4B(steps, [this](const std::string& name) { renderAndCapture(name); });
 
     // Without an account the catalog shows its setup hint and makes no request.
     steps.push_back([] {
