@@ -41,5 +41,7 @@ void drawToast(const GfxRenderer& renderer, const char* msg, const char* detail 
 enum class TouchscreenToggleSource { Button, FrontlightDrawer };
 // Only drawer toggles need the Picco recovery hint and longer reading time.
 void showTouchscreenToast(const GfxRenderer& renderer, bool readerContext, TouchscreenToggleSource source);
+// A touch toggle while the slide switch owns touch.
+void showTouchscreenSlideSwitchToast(const GfxRenderer& renderer);
 
 }  // namespace BookActions

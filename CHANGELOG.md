@@ -35,6 +35,7 @@ Based on CrossInk v2.0.0.
 - Holding Power while the reader restarts on its own, for instance after a BookOrbit download or when leaving File Transfer, no longer runs an action once the reader is back: releasing it no longer confirms, turns a page or fires a Power shortcut. Power works normally from the next press, without the two-second wait after such restarts.
 - BOOX Picco: About now names its touch controller (TMA525C).
 - Dictionary definitions also turn pages with a left or right swipe, not only with an up or down swipe.
+- Up + Down turns the touchscreen back on while it is off, in the reader too. In the reader it opened the reader menu instead, even with Up + Down set to Toggle Touchscreen, so on the BOOX Picco a book could leave you with no way to get touch back. With touch on, Up + Down runs the action you assigned to it. When the Picco's slide switch controls touch, the combo and every Toggle Touchscreen shortcut now say that touch follows the slide switch instead of doing nothing.
 
 ### Security
 

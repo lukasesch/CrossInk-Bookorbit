@@ -148,6 +148,7 @@ inline esp_sleep_wakeup_cause_t esp_sleep_get_wakeup_cause() { return ESP_SLEEP_
 #include "util/ScreenshotUtil.h"
 #include "util/SleepWakePolicy.h"
 #include "util/SlideSwitch.h"
+#include "util/TouchscreenEscapeHatch.h"
 
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
@@ -907,7 +908,13 @@ bool handleGlobalPowerButtonAction(const CrossPointSettings::SHORT_PWRBTN action
       return true;
     case CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN:
       // A slide switch bound to touch controls owns this state.
-      if (!gpio.hasTouch() || slideSwitchOwns(CrossPointSettings::SlideSwitchAction::TouchControls)) return false;
+      if (!gpio.hasTouch()) return false;
+      if (slideSwitchOwns(CrossPointSettings::SlideSwitchAction::TouchControls)) {
+        LOG_INF("TOUCH", "Touchscreen shortcut ignored: the slide switch owns touch");
+        BookActions::showTouchscreenSlideSwitchToast(renderer);
+        activityManager.requestUpdate();
+        return true;
+      }
       SETTINGS.disableReaderTouchscreen = SETTINGS.disableReaderTouchscreen ? 0 : 1;
       activityManager.persistGlobalSettings();
       LOG_INF("TOUCH", "Touchscreen %s by shortcut", SETTINGS.disableReaderTouchscreen ? "disabled" : "enabled");
@@ -1041,9 +1048,7 @@ bool dispatchButtonShortcut(const ButtonShortcutController::Result& result) {
     case ButtonShortcutController::Event::ConfiguredAction:
       return dispatchShortcutAction(chordPowerAction(result.action));
     case ButtonShortcutController::Event::TouchscreenEscapeHatch:
-      if (activityManager.openReaderSettingsForTouchscreenEscapeHatch()) return true;
-      return deviceUsesGlobalTouchscreenLock() && SETTINGS.disableReaderTouchscreen &&
-             dispatchShortcutAction(CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN);
+      return dispatchShortcutAction(CrossPointSettings::SHORT_PWRBTN::TOGGLE_TOUCHSCREEN);
   }
 
   activityManager.loop();
@@ -2419,9 +2424,11 @@ void loop() {
   }
 
 #if !FREEINK_DEVICE_EEGO_A4
-  const bool touchscreenEscapeHatch = !modalOwnsInput && !buttonShortcutController.isQuickLocked() && gpio.hasTouch() &&
-                                      SETTINGS.disableReaderTouchscreen &&
-                                      (activityManager.isReaderActivity() || deviceUsesGlobalTouchscreenLock());
+  const bool touchscreenEscapeHatch =
+      TouchscreenEscapeHatch::routeFor({gpio.hasTouch(), SETTINGS.disableReaderTouchscreen != 0,
+                                        activityManager.isReaderActivity(), deviceUsesGlobalTouchscreenLock(),
+                                        buttonShortcutController.isQuickLocked(), modalOwnsInput}) ==
+      TouchscreenEscapeHatch::Route::EnableTouch;
   const auto sideButtonShortcutResult = buttonShortcutController.updateUpDown(
       mappedInputManager.buttonSampleTime(), gpio.isPressed(HalGPIO::BTN_UP), gpio.isPressed(HalGPIO::BTN_DOWN),
       configuredSideButtonChordAction(), touchscreenEscapeHatch, modalOwnsInput);

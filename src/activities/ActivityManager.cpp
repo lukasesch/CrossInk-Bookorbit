@@ -1363,20 +1363,6 @@ bool ActivityManager::openFrontlightPanelFrom(Activity& source) {
   return openFrontlightPanel(source, renderer, mappedInput);
 }
 
-bool ActivityManager::openReaderSettingsForTouchscreenEscapeHatch() {
-  if (!mappedInput.hasTouchHardware() || !SETTINGS.disableReaderTouchscreen || !currentActivity ||
-      !currentActivity->isReaderActivity() || pendingAction != PendingAction::None) {
-    return false;
-  }
-
-  if (!currentActivity->openReaderSettingsMenu()) {
-    // TXT has no reader menu. Keep its Settings fallback usable while touch
-    // is locked without changing the persisted touchscreen preference.
-    goToSettings(false, false, true);
-  }
-  return true;
-}
-
 bool ActivityManager::hasActivityNamed(const char* activityName) const {
   const auto matches = [activityName](const auto& activity) { return activity && activity->name == activityName; };
   if (matches(currentActivity) || matches(pendingActivity)) {

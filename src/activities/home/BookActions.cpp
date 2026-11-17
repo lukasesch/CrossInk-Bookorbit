@@ -429,4 +429,12 @@ void showTouchscreenToast(const GfxRenderer& renderer, const bool readerContext,
   delay(showRecoveryHint ? 2500 : 1000);
 }
 
+void showTouchscreenSlideSwitchToast(const GfxRenderer& renderer) {
+  {
+    RenderLock lock;
+    drawToast(renderer, tr(STR_TOUCHSCREEN_FOLLOWS_SLIDE_SWITCH));
+  }
+  delay(1500);
+}
+
 }  // namespace BookActions

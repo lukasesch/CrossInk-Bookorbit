@@ -3191,18 +3191,17 @@ class SimulatorSmokeTest {
           fail("Recovered touch setting did not survive a reload");
       }
     }
-    // A reader without its own menu still opens recovery Settings instead of
-    // silently changing the user's touch preference (the TXT/Markdown path).
+    // In the reader Up + Down turns touch back on too, instead of opening a menu.
     activityManager.replaceActivity(
         std::make_unique<HomeReaderSmokeActivity>("TouchRecoveryReader", true, renderer, mappedInputManager));
     activityManager.loop();
     SETTINGS.disableReaderTouchscreen = 1;
-    if (!dispatchButtonShortcut({Event::TouchscreenEscapeHatch, true}) || !SETTINGS.disableReaderTouchscreen)
-      fail("Reader recovery changed the touchscreen preference");
+    if (!dispatchButtonShortcut({Event::TouchscreenEscapeHatch, true}) || SETTINGS.disableReaderTouchscreen)
+      fail("Up + Down did not restore touch in the reader");
     activityManager.loop();
-    if (!activityManager.isCurrentActivityNamed("Settings") || !mappedInputManager.hasTouch())
-      fail("Reader recovery Settings is not usable");
-    LOG_INF("SMOKE", "Simulator smoke test passed: frontlight touch recovery and outside-reader Up + Down");
+    if (!activityManager.isCurrentActivityNamed("TouchRecoveryReader") || !mappedInputManager.hasTouch())
+      fail("Reader Up + Down left the reader or touch is still unusable");
+    LOG_INF("SMOKE", "Simulator smoke test passed: frontlight touch recovery and Up + Down in and outside the reader");
     std::_Exit(0);
 #else
     fail("Touch recovery regression requires touch hardware");

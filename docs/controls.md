@@ -277,8 +277,10 @@ works.
 On the Xteink X4 and on touchscreen devices other than EEGO, **Settings >
 Controls > Side Buttons > Up + Down Combo** runs an action when you press both side buttons
 together. It is off by default. On a touchscreen device, if you have turned the
-reader touchscreen off, this combo does something else instead: it opens a menu
-so you can always turn the touchscreen back on.
+touchscreen off, this combo turns it back on instead, wherever touch is off (on
+the BOOX Picco that is every screen, the reader included). If the Picco's slide
+switch is bound to Touch Reader Controls, the switch decides and the combo only
+shows a note saying so.
 
 On **EEGO**, Up + Down is reserved for the device's hardware reset. It is not
 offered as a shortcut or Quick Actions trigger, on the device or in web settings.

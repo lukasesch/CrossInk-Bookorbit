@@ -225,7 +225,6 @@ class ActivityManager {
   bool blocksGlobalInput() const;
   bool isHomeActivity() const;
   bool isReaderActivity() const;
-  bool openReaderSettingsForTouchscreenEscapeHatch();
   // Pushes the frontlight panel over `source`; its result goes back to `source`.
   bool openFrontlightPanelFrom(Activity& source);
   bool handleHomeButtonBackOrHome();
