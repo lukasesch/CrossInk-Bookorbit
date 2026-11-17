@@ -12,6 +12,9 @@
 
 class Bitmap;
 class GfxRenderer;
+namespace freeink {
+struct Icon;
+}
 struct RecentBook;
 struct BookReadingStats;
 struct GlobalReadingStats;
@@ -62,6 +65,34 @@ struct ReaderStatusBarContent {
 enum class ThemeTabBarAppearance : uint8_t {
   Pill,
   BorderedText,
+  // Framed bar, cells selected by a 2 px stroke (Picco).
+  Segmented,
+};
+
+// Header variants reached through BaseTheme::drawHeaderChrome. Themes without their own
+// chrome map it onto drawHeader, so only themes that override it see the extra fields.
+enum class HeaderLeading : uint8_t { None, Back, House };
+enum class HeaderSyncState : uint8_t { Hidden, Idle, Syncing, Offline };
+struct HeaderChrome {
+  const char* title = nullptr;
+  HeaderLeading leading = HeaderLeading::None;
+  // Text action left of the divider, or the legacy drawHeader subtitle.
+  const char* contextualLabel = nullptr;
+  const freeink::Icon* contextualIcon = nullptr;
+  HeaderSyncState sync = HeaderSyncState::Hidden;
+  // Pre-formatted age ("2 min"); read only when sync == Idle.
+  const char* syncLabel = nullptr;
+  bool readerContext = false;
+  bool showStatus = true;
+  bool filenameTitle = false;
+  // Space the title leaves free at the header's right edge for the caller's own controls.
+  int titleRightReserve = 0;
+};
+
+// How drawOptionPopup draws an option label after BaseTheme::paintOptionPopupRow.
+struct OptionPopupRowPaint {
+  bool invertText = true;  // drawText's black flag
+  bool bold = false;
 };
 
 // The Classic and Lyra-derived themes share the same status-bar artwork.
@@ -307,6 +338,9 @@ class BaseTheme {
                         bool showSelection = true, int totalItemCount = -1) const;
   virtual void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle = nullptr,
                           bool readerContext = false, bool showStatus = true, bool filenameTitle = false) const;
+  // Header with optional leading back/house target, contextual action and sync chip.
+  // Default: drawHeader with the title and contextual label as subtitle.
+  virtual void drawHeaderChrome(const GfxRenderer& renderer, Rect rect, const HeaderChrome& chrome) const;
   virtual void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,
                              const char* rightLabel = nullptr) const;
   virtual void drawTabBar(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs,
@@ -332,6 +366,9 @@ class BaseTheme {
                                int firstOptionIndex = -1, const char* secondNoteLabel = nullptr,
                                const char* secondNoteBody = nullptr) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
+  // Paints an option row's background (and any marker) and says how to draw its label.
+  virtual OptionPopupRowPaint paintOptionPopupRow(const GfxRenderer& renderer, Rect row, bool selected,
+                                                  bool disabled) const;
   // title is borrowed and must stay alive for the call; pass nullptr or "" for none.
   virtual void drawReaderStatusBar(const GfxRenderer& renderer, ReaderStatusBarPosition position,
                                    const ReaderStatusBarContent& content,

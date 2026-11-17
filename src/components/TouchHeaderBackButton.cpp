@@ -12,6 +12,9 @@
 #include "components/UiAppHelpers.h"
 #include "components/icons/touchHeaderIcons.h"
 #include "fontIds.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoTheme.h"
+#endif
 
 namespace fui = freeink::ui;
 
@@ -30,7 +33,20 @@ int effectiveVerticalOffset(const Layout& layout, const Rect& header, const int 
 }
 }  // namespace
 
+#if CROSSINK_APP_PICCO_UI
+namespace {
+Rect toRect(const PiccoLayout::Box& box) { return Rect{box.x, box.y, box.width, box.height}; }
+}  // namespace
+#endif
+
 Layout layout(const Rect& header) {
+#if CROSSINK_APP_PICCO_UI
+  // One geometry for drawing and hit testing: the Picco header layout.
+  if (UITheme::isPicco()) {
+    const auto picco = PiccoTheme::cachedHeaderLayout(header, HeaderLeading::Back, false);
+    return {toRect(picco.leadingIcon), toRect(picco.leadingTouch), picco.title.x};
+  }
+#endif
   const int actionWidth = std::min(actionSize, header.width);
   const int actionHeight = std::min(actionSize, header.height);
   // Center the action lane vertically so taller theme headers split their
@@ -100,6 +116,9 @@ bool wasTapped(const MappedInputManager& input, const GfxRenderer& renderer, con
 }
 
 int controlRightInset() {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) return PiccoTheme::statusClusterReserve(true);
+#endif
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Inline battery themes need a separate lane for the controls.
   return metrics.headerBatteryDetached || metrics.headerBatterySide == 1 ? 10 : metrics.batteryWidth + 80;
@@ -114,6 +133,21 @@ void draw(GfxRenderer& renderer, const Rect& header, const char* title, const bo
 void draw(GfxRenderer& renderer, fui::GfxRendererTarget& target, const Rect& header, const char* title,
           const bool readerContext, const int rightReserve, const char* subtitle, const int verticalOffset,
           const bool showStatus) {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    (void)target;
+    (void)verticalOffset;
+    HeaderChrome chrome;
+    chrome.title = title;
+    chrome.leading = HeaderLeading::Back;
+    chrome.contextualLabel = subtitle;
+    chrome.readerContext = readerContext;
+    chrome.showStatus = showStatus;
+    chrome.titleRightReserve = rightReserve;
+    GUI.drawHeaderChrome(renderer, header, chrome);
+    return;
+  }
+#endif
   Layout back = layout(header);
   const int offset = effectiveVerticalOffset(back, header, verticalOffset);
   back.iconRect.y += offset;
@@ -156,6 +190,17 @@ void drawCompact(GfxRenderer& renderer, const char* title, const bool readerCont
 const int TRAILING_ACTION_RESERVE = actionSize + titleGap;
 
 void drawTrailingIcon(GfxRenderer& renderer, const Rect& header, const freeink::Icon& icon, const int verticalOffset) {
+#if CROSSINK_APP_PICCO_UI
+  // Picco: the contextual action left of the divider; the divider is drawn here because
+  // the header itself was drawn without an action.
+  if (UITheme::isPicco()) {
+    const auto picco = PiccoTheme::cachedHeaderLayout(header, HeaderLeading::Back, true);
+    renderer.fillRect(picco.divider.x, picco.divider.y, picco.divider.width, picco.divider.height, true);
+    drawLucideIcon(renderer, icon, picco.contextual.x + (picco.contextual.width - icon.w) / 2,
+                   picco.contextual.y + (picco.contextual.height - icon.h) / 2);
+    return;
+  }
+#endif
   Layout back = layout(header);
   back.iconRect.y += effectiveVerticalOffset(back, header, verticalOffset);
   const int x = header.x + header.width - back.iconRect.width + (back.iconRect.width - icon.w) / 2;
@@ -167,6 +212,9 @@ void drawTrailingIcon(GfxRenderer& renderer, const Rect& header, const freeink::
 }
 
 Rect trailingTouchRect(const Rect& header) {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) return toRect(PiccoTheme::cachedHeaderLayout(header, HeaderLeading::Back, true).contextual);
+#endif
   const Rect touch = layout(header).touchRect;
   return Rect{header.x + header.width - (touch.x - header.x) - touch.width, touch.y, touch.width, touch.height};
 }

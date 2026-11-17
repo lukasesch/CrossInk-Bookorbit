@@ -63,6 +63,11 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "components/icons/frontlightHeaderIcons.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoPageIndicator.h"
+#include "components/picco/PiccoSwitch.h"
+#include "components/picco/PiccoTokens.h"
+#endif
 #include "fontIds.h"
 #include "util/DictionaryRegistry.h"
 #include "util/FrontlightSchedule.h"
@@ -1915,9 +1920,16 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   // header's final underline pixel rather than leaving a second divider above it.
   const Rect header = TouchHeaderBackButton::compactHeaderRect(renderer);
   const int tabTop = std::max<int>(safe.y, header.y + header.height - 1);
-  setUiContentMargin(
-      screen, renderer,
-      fui::Insets{static_cast<int16_t>(tabTop), 0, static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
+  int bottomReserve = UITheme::getButtonHintsReserve(renderer);
+#if CROSSINK_APP_PICCO_UI
+  const bool picco = UITheme::isPicco();
+  // Picco lists page by swipe and end above the page indicator band.
+  if (picco) bottomReserve = std::max(bottomReserve, PiccoTokens::kListBottomReserve);
+#else
+  constexpr bool picco = false;
+#endif
+  setUiContentMargin(screen, renderer,
+                     fui::Insets{static_cast<int16_t>(tabTop), 0, static_cast<int16_t>(bottomReserve), 0});
 
   if (isFileBrowserView()) {
     const int16_t listInset = static_cast<int16_t>(metrics.listInset);
@@ -1951,9 +1963,20 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     return;
   }
 
+#if CROSSINK_APP_PICCO_UI
+  Rect pageIndicatorBand = PiccoPageIndicator::band(renderer);
+#endif
   if (selectedCategoryIndex == 3) {
     const int footerTop = drawSystemVersionFooter(renderer, metrics);
-    const int footerReserve = std::max(0, screen.body().bottom() - footerTop + metrics.verticalSpacing);
+    int listEnd = footerTop - metrics.verticalSpacing;
+#if CROSSINK_APP_PICCO_UI
+    // The version footer takes the indicator's band; the indicator moves up above it.
+    if (picco) {
+      pageIndicatorBand.y = std::min(pageIndicatorBand.y, footerTop - pageIndicatorBand.height);
+      listEnd = std::min(listEnd, pageIndicatorBand.y - PiccoTokens::kGroupGap);
+    }
+#endif
+    const int footerReserve = std::max(0, screen.body().bottom() - listEnd);
     screen.insetContent(fui::Insets{0, 0, static_cast<int16_t>(footerReserve), 0});
   }
 
@@ -1981,14 +2004,15 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   tabProps.contentInset = fui::Insets{2, 4, 2, 4};
   const int16_t tabLineHeight = screen.target().lineHeight(screen.theme().smallText.font);
   const int16_t preferredTabHeight =
-      mappedInput.hasTouch() ? TOUCH_TAB_BAR_HEIGHT : static_cast<int16_t>(metrics.tabBarHeight);
+      picco || !mappedInput.hasTouch() ? static_cast<int16_t>(metrics.tabBarHeight) : TOUCH_TAB_BAR_HEIGHT;
   const int16_t tabBand = preferredTabHeight > tabLineHeight + 10 ? preferredTabHeight : tabLineHeight + 10;
   // Legacy Lyra two-state treatment: with the selection on the tab band, the
   // band fills gray and the active tab is a solid pill; with the selection
   // down in the list, the band is plain and the active tab keeps a gray box
   // with an underline. The 1px rule under the band is always there.
   const bool tabsFocused = selectedSettingIndex == 0;
-  const bool borderedTabs = metrics.tabBarAppearance == ThemeTabBarAppearance::BorderedText;
+  const bool borderedTabs = metrics.tabBarAppearance == ThemeTabBarAppearance::BorderedText ||
+                            metrics.tabBarAppearance == ThemeTabBarAppearance::Segmented;
   const bool roundedRaffTabs = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::ROUNDEDRAFF;
   tabProps.divider = true;
   fui::StyleSet tabStyles;
@@ -2050,7 +2074,14 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   } else
 #endif
   {
-    const fui::Rect tabRect = screen.takeTop(tabBand);
+#if CROSSINK_APP_PICCO_UI
+    // Picco: the segmented bar sits 16 below the header, inside the gutter.
+    if (picco) screen.spacer(16);
+#endif
+    fui::Rect tabRect = screen.takeTop(tabBand);
+#if CROSSINK_APP_PICCO_UI
+    if (picco) tabRect = tabRect.inset(fui::Insets{0, PiccoTokens::kGutter, 0, PiccoTokens::kGutter});
+#endif
     if (!roundedRaffTabs && !borderedTabs && tabsFocused) {
       screen.target().fill(tabRect, fui::Paint::dither(fui::Color::LightGray));
     }
@@ -2101,6 +2132,9 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
       item.value = nullptr;
     }
     item.actionValue = static_cast<int16_t>(i);
+#if CROSSINK_APP_PICCO_UI
+    if (picco) PiccoSwitch::applyToListItem(item);
+#endif
     items.push_back(item);
   }
 
@@ -2119,12 +2153,15 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     props.headerText = screen.theme().smallText;
     props.headerText.bold = true;
   }
-  configureUiListSectionHeaders(props, screen.theme());
+  configureUiListSectionHeaders(props, screen.theme(), &screen.target());
   const auto rows = configureUiList(props, screen.theme(), screen.body());
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, settingsCount);  // clamp to range
   props.topIndex = static_cast<uint16_t>(topIndex);
   screen.list(props);
+#if CROSSINK_APP_PICCO_UI
+  if (picco) PiccoPageIndicator::drawForList(renderer, topIndex, visibleRows, settingsCount, &pageIndicatorBand);
+#endif
 }
 
 void SettingsActivity::render(RenderLock&&) {

@@ -26,6 +26,9 @@
 #include "components/themes/lyra/LyraTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoTheme.h"
+#endif
 #include "fontIds.h"
 
 namespace {
@@ -59,6 +62,14 @@ int drawCenteredTextLines(const GfxRenderer& renderer, const Rect screen, const 
     y += lineHeight + lineSpacing;
   }
   return lineHeight * static_cast<int>(lines.size()) + lineSpacing * (static_cast<int>(lines.size()) - 1);
+}
+
+const ThemeMetrics* piccoMetrics() {
+#if CROSSINK_APP_PICCO_UI
+  return &PiccoMetrics::values;
+#else
+  return nullptr;
+#endif
 }
 
 std::string addBmpSuffix(const std::string& path, const char* suffix) {
@@ -149,11 +160,10 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       currentMetrics = &DashboardMetrics::values;
       break;
 #if CROSSINK_APP_PICCO_UI
-    // Lyra until PiccoTheme lands.
     case CrossPointSettings::UI_THEME::PICCO:
       LOG_DBG("UI", "Using Picco theme");
-      currentTheme = std::make_unique<LyraTheme>();
-      currentMetrics = &LyraMetrics::values;
+      currentTheme = std::make_unique<PiccoTheme>();
+      currentMetrics = &PiccoMetrics::values;
       break;
 #endif
     default:
@@ -170,7 +180,8 @@ void UITheme::rebuildMetricVariants() {
     auto& metrics = metricVariants[index];
     metrics = *currentMetrics;
     if (index >= 3) metrics.buttonHintsHeight = 0;
-    const int increase = displayStatusBarHeightIncrease(index % 3);
+    // The Picco header draws a fixed status cluster; the status-bar text size does not apply.
+    const int increase = currentMetrics == piccoMetrics() ? 0 : displayStatusBarHeightIncrease(index % 3);
     metrics.batteryBarHeight += increase;
     metrics.headerHeight += increase;
     metrics.homeTopPadding += increase;
@@ -331,6 +342,7 @@ int UITheme::getDisplayStatusBarFontId() {
 }
 
 int UITheme::getDisplayStatusBarHeightIncrease() {
+  if (isPicco()) return 0;
   return displayStatusBarHeightIncrease(SETTINGS.displayStatusBarTextSize);
 }
 

@@ -459,6 +459,11 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   if (showStatus) drawDisplayStatusBar(renderer, rect.y);
 }
 
+void BaseTheme::drawHeaderChrome(const GfxRenderer& renderer, const Rect rect, const HeaderChrome& chrome) const {
+  drawHeader(renderer, rect, chrome.title, chrome.contextualLabel, chrome.readerContext, chrome.showStatus,
+             chrome.filenameTitle);
+}
+
 void BaseTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label, const char* rightLabel) const {
   constexpr int underlineHeight = 2;  // Height of selection underline
   constexpr int underlineGap = 4;     // Gap between text and underline
@@ -1322,8 +1327,6 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
 
   const int itemRectX = dialogX + innerPadding;
   const int itemRectW = std::max(1, dialogW - innerPadding * 2 - scrollBarGutter);
-  const int selectionRadius = metrics.optionPopupSelectionRadius;
-
   if (hasHiddenOptions) {
     const int scrollBarX = dialogX + dialogW - innerPadding - metrics.scrollBarRightOffset;
     const int scrollBarHeight = std::max(metrics.scrollBarWidth, (listHeight * visibleCount) / optionCount);
@@ -1353,21 +1356,10 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
       const bool selected = !disabled && !saveFocused && optionIndex == safeSelectedIndex;
       const char* labelText = options[optionIndex];
 
-      if (metrics.optionPopupDrawAllRows || selected) {
-        Color rowColor;
-        if (selected) {
-          rowColor = metrics.optionPopupSelectionLight ? Color::LightGray : Color::Black;
-        } else {
-          rowColor = Color::White;
-        }
-        if (selectionRadius > 0) {
-          renderer.fillRoundedRect(itemRectX, itemY, itemRectW, rowHeight, selectionRadius, rowColor);
-        } else {
-          renderer.fillRect(itemRectX, itemY, itemRectW, rowHeight, rowColor == Color::Black);
-        }
-      }
+      const OptionPopupRowPaint paint =
+          paintOptionPopupRow(renderer, Rect{itemRectX, itemY, itemRectW, rowHeight}, selected, disabled);
 
-      const auto style = primaryOptionIndex == optionIndex ? EpdFontFamily::BOLD : optionStyle;
+      const auto style = primaryOptionIndex == optionIndex || paint.bold ? EpdFontFamily::BOLD : optionStyle;
       // The dialog stops at the screen's margins: a longer label, such as a BookOrbit
       // collection's name, ends in an ellipsis instead of running over the frame.
       int textW = renderer.getTextWidth(optionFontId, labelText, style);
@@ -1380,11 +1372,7 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
       }
       const int textY = itemY + (rowHeight - optionLineHeight) / 2;
       const int textX = itemRectX + (itemRectW - textW) / 2;
-      // Unselected items: text is dark (invert=true means draw on white bg).
-      // Selected on dark bg: text must be white (invert=false).
-      // Selected on light bg: text stays dark (invert=true).
-      const bool invertText = disabled || (selected ? metrics.optionPopupSelectionLight : true);
-      renderer.drawText(optionFontId, textX, textY, labelText, invertText, style);
+      renderer.drawText(optionFontId, textX, textY, labelText, paint.invertText, style);
       // Mark unavailable actions without shading their row like a selection.
       if (disabled) renderer.drawLine(textX, textY + optionLineHeight / 2, textX + textW, textY + optionLineHeight / 2);
     }
@@ -1418,6 +1406,26 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
     }
 #endif
   }
+}
+
+OptionPopupRowPaint BaseTheme::paintOptionPopupRow(const GfxRenderer& renderer, const Rect row, const bool selected,
+                                                   const bool disabled) const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  if (metrics.optionPopupDrawAllRows || selected) {
+    const Color rowColor =
+        selected ? (metrics.optionPopupSelectionLight ? Color::LightGray : Color::Black) : Color::White;
+    if (metrics.optionPopupSelectionRadius > 0) {
+      renderer.fillRoundedRect(row.x, row.y, row.width, row.height, metrics.optionPopupSelectionRadius, rowColor);
+    } else {
+      renderer.fillRect(row.x, row.y, row.width, row.height, rowColor == Color::Black);
+    }
+  }
+  // Unselected items: text is dark (invert=true means draw on white bg).
+  // Selected on dark bg: text must be white (invert=false).
+  // Selected on light bg: text stays dark (invert=true).
+  OptionPopupRowPaint paint;
+  paint.invertText = disabled || (selected ? metrics.optionPopupSelectionLight : true);
+  return paint;
 }
 
 Rect fittedBitmapRect(const Bitmap& bitmap, const Rect& target) {

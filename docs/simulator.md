@@ -76,7 +76,7 @@ pio run -e picco-simulator
 python3 scripts/run_simulator_smoke_test.py --env picco-simulator --no-build --picco-screens ../builds/sim-screens-baseline
 ```
 
-The scenario (`src/simulator/PiccoScreensSmokeTest.cpp`) opens the reader with `--book` (default: the rendering-matrix fixture), reaches the light panel and reader drawer with the Picco swipes, and walks every Settings category and submenu page. Captures are the logical framebuffer (black/white, no grayscale passes). It replaces the folder's previous PNGs.
+The scenario (`src/simulator/PiccoScreensSmokeTest.cpp`) opens the reader with `--book` (default: the rendering-matrix fixture), reaches the light panel and reader drawer with the Picco swipes, and walks every Settings category and submenu page. The scenario switches the UI theme to Picco first. Captures are the logical framebuffer (black/white, no grayscale passes). It replaces the folder's previous PNGs.
 
 ## Cache Note
 

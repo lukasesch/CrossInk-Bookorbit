@@ -13,6 +13,9 @@
 #include "AppCapabilities.h"
 #include "CrossPointSettings.h"
 #include "UITheme.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoThemeTokens.h"
+#endif
 
 namespace UiThemeTokensDetail {
 inline int16_t scaledListMetric(const int metric) {
@@ -33,9 +36,24 @@ inline int16_t scaledListMetric(const int metric) {
 enum class UiListRowType : uint8_t {
   SingleLine,
   WithSubtitle,
+  // A row holding a framed control (stepper, switch); Picco sizes it apart.
+  WithControl,
 };
 
 inline int16_t uiListRowHeight(const freeink::ui::ThemeTokens& tokens, const UiListRowType rowType) {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    // Row box height; the token's rowGap (the hairline gap) completes the 64 / 80 step.
+    switch (rowType) {
+      case UiListRowType::SingleLine:
+        return static_cast<int16_t>(PiccoLayout::listRowGeometry(PiccoTokens::kRowOneLine).rowHeight);
+      case UiListRowType::WithSubtitle:
+        return static_cast<int16_t>(PiccoLayout::listRowGeometry(PiccoTokens::kRowWithHint).rowHeight);
+      case UiListRowType::WithControl:
+        return static_cast<int16_t>(PiccoLayout::listRowGeometry(PiccoTokens::kRowWithControl).rowHeight);
+    }
+  }
+#endif
   if (gpio.hasTouch()) return tokens.rowHeight;
 
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
@@ -43,6 +61,7 @@ inline int16_t uiListRowHeight(const freeink::ui::ThemeTokens& tokens, const UiL
     case UiListRowType::SingleLine:
       return UiThemeTokensDetail::scaledListMetric(metrics.listRowHeight);
     case UiListRowType::WithSubtitle:
+    case UiListRowType::WithControl:
       return UiThemeTokensDetail::scaledListMetric(metrics.listWithSubtitleRowHeight);
   }
   return tokens.rowHeight;
@@ -60,12 +79,35 @@ inline uint16_t configureUiList(freeink::ui::ListProps& props, const freeink::ui
   if (props.rowHeight <= 0) props.rowHeight = uiListRowHeight(tokens, rowType);
   // Subtitle rows may wrap their labels, so retain FreeInkUI's font-derived
   // two-line height and avoid overlapping the following item.
-  if (props.labelText.maxLines > 1) props.rowHeight = std::max(props.rowHeight, tokens.rowHeight);
+  bool fontDerivedMinimum = props.labelText.maxLines > 1;
+#if CROSSINK_APP_PICCO_UI
+  // Picco rows have a fixed box and still grow for wrapped labels; tokens.rowHeight is the step.
+  if (UITheme::isPicco()) fontDerivedMinimum = false;
+#endif
+  if (fontDerivedMinimum) props.rowHeight = std::max(props.rowHeight, tokens.rowHeight);
   if (props.rowGap < 0) props.rowGap = tokens.listRowGap;
   return freeink::ui::listVisibleRows(rect, props.rowHeight, props.rowGap);
 }
 
-inline void configureUiListSectionHeaders(freeink::ui::ListProps& props, const freeink::ui::ThemeTokens& tokens) {
+// target, when given, sizes Picco's section label row (label line + 12 below).
+inline void configureUiListSectionHeaders(freeink::ui::ListProps& props, const freeink::ui::ThemeTokens& tokens,
+                                          const freeink::ui::DrawTarget* target = nullptr) {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    // Section label: small caps bold, 30 above, 12 below. The list draws no rule under it.
+    props.headerText = tokens.smallText;
+    props.headerText.bold = true;
+    props.sectionGap = PiccoTokens::kSectionAbove;
+    props.headerUnderline = false;
+    if (target != nullptr) {
+      props.headerRowHeight =
+          static_cast<int16_t>(target->lineHeight(props.headerText.font) + PiccoTokens::kSectionBelow);
+    }
+    return;
+  }
+#else
+  (void)target;
+#endif
   if (SETTINGS.uiTheme != CrossPointSettings::UI_THEME::ROUNDEDRAFF) return;
 
   props.headerText = tokens.titleText;
@@ -74,7 +116,11 @@ inline void configureUiListSectionHeaders(freeink::ui::ListProps& props, const f
 }
 
 inline const char* uiListSectionHeaderLabel(std::string& storage, const char* label) {
-  if (SETTINGS.uiTheme != CrossPointSettings::UI_THEME::ROUNDEDRAFF) return label;
+  bool uppercase = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::ROUNDEDRAFF;
+#if CROSSINK_APP_PICCO_UI
+  uppercase = uppercase || UITheme::isPicco();
+#endif
+  if (!uppercase) return label;
 
   storage = label != nullptr ? label : "";
   std::transform(storage.begin(), storage.end(), storage.begin(),
@@ -106,5 +152,8 @@ inline freeink::ui::ThemeTokens uiThemeTokens(const freeink::ui::GfxRendererTarg
   tokens.headerUnderline = static_cast<uint8_t>(metrics.headerUnderlineSize);
   tokens.headerTitleAlign = static_cast<fui::TextAlign>(metrics.headerTitleAlign);
   tokens.bodyText.bold = metrics.listTitleBold;
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) applyPiccoTokens(tokens);
+#endif
   return tokens;
 }

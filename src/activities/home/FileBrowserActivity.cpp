@@ -40,6 +40,10 @@
 #include "components/UiAppHelpers.h"
 #include "components/icons/listIcons.h"
 #include "components/themes/minimal/MinimalTheme.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoPageIndicator.h"
+#include "components/picco/PiccoTokens.h"
+#endif
 #include "fontIds.h"
 #include "network/ReadingSyncUpload.h"
 #include "sync/BookSyncFile.h"
@@ -1446,11 +1450,29 @@ void FileBrowserActivity::listScreen(UiApp::ScreenType& screen, void* user) {
 void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Content below the GUI.drawHeader band, above the button hints.
+  int bottomReserve = UITheme::getButtonHintsReserve(renderer);
+#if CROSSINK_APP_PICCO_UI
+  // Picco lists page by swipe and end above the page indicator band.
+  if (UITheme::isPicco()) bottomReserve = std::max(bottomReserve, PiccoTokens::kListBottomReserve);
+#endif
   setUiContentMargin(screen, renderer,
                      fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput)), 0,
-                                 static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer)), 0});
+                                 static_cast<int16_t>(bottomReserve), 0});
 
-  if (mode == Mode::Books && mappedInput.hasTouchHardware()) {
+#if CROSSINK_APP_PICCO_UI
+  if (mode == Mode::Books && mappedInput.hasTouchHardware() && UITheme::isPicco()) {
+    const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+    const Rect target = TouchHeaderBackButton::trailingTouchRect(header);
+    fui::ButtonProps settings;
+    settings.action = ACTION_SETTINGS;
+    settings.styles = fui::plainStyles(fui::Paint::solid(fui::Color::Black));
+    settings.minTouchSize = screen.theme().minTouchSize;
+    screen.button(settings, fui::Rect{static_cast<int16_t>(target.x), static_cast<int16_t>(target.y),
+                                      static_cast<int16_t>(target.width), static_cast<int16_t>(target.height)});
+    TouchHeaderBackButton::drawTrailingIcon(renderer, header, icon_sliders_horizontal_24);
+  } else
+#endif
+      if (mode == Mode::Books && mappedInput.hasTouchHardware()) {
     const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
     const auto backLayout = TouchHeaderBackButton::layout(header);
     const fui::Rect settingsRect{static_cast<int16_t>(header.x + header.width - backLayout.iconRect.width),
@@ -1615,6 +1637,12 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   // window path has only the fixed-height estimate.
   const auto indicatorRows =
       static_cast<uint16_t>(usesVirtualList ? listNav.pageRowsFor(static_cast<int>(totalEntries)) : visibleRows);
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    PiccoPageIndicator::drawForList(renderer, topIndex, indicatorRows, static_cast<int>(totalEntries));
+    return;
+  }
+#endif
   fui::drawListScrollIndicator(screen.target(), listRect, totalEntries, indicatorRows, topIndex,
                                screen.theme().listScrollWidth, screen.theme().listScrollSide,
                                screen.theme().listScrollInset);
@@ -1639,7 +1667,12 @@ void FileBrowserActivity::render(RenderLock&&) {
   if (mappedInput.hasTouchHardware()) {
     const auto spec = uiScaleSpec();
     if (filenameTitle) uiTarget.setFont(fui::GfxRendererTarget::FONT_TITLE, renderer.filenameFontId(spec.titleFontId));
-    const int rightReserve = mode == Mode::Books ? TouchHeaderBackButton::layout(header).iconRect.width + 8 : 0;
+    int rightReserve = mode == Mode::Books ? TouchHeaderBackButton::layout(header).iconRect.width + 8 : 0;
+#if CROSSINK_APP_PICCO_UI
+    if (UITheme::isPicco() && mode == Mode::Books) {
+      rightReserve = header.x + header.width - TouchHeaderBackButton::trailingTouchRect(header).x;
+    }
+#endif
     TouchHeaderBackButton::draw(renderer, uiTarget, header, folderName.c_str(), false, rightReserve);
     uiTarget.setFont(fui::GfxRendererTarget::FONT_TITLE, spec.titleFontId);
   } else {

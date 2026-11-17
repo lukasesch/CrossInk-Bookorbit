@@ -5,6 +5,10 @@
 #include <algorithm>
 
 #include "fontIds.h"
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+#include "components/UITheme.h"
+#include "components/picco/PiccoTokens.h"
+#endif
 
 namespace TouchActionButtons {
 
@@ -41,6 +45,30 @@ void draw(const GfxRenderer& renderer, const Layout& layout, const char* const* 
           const int selectedIndex, int fontId) {
   if (labels == nullptr) return;
   if (fontId == 0) fontId = UI_10_FONT_ID;
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+  // Picco: r14 frames, the primary action is the screen's one solid button, focus is a 2 px stroke.
+  if (UITheme::isPicco()) {
+    for (uint8_t i = 0; i < layout.count; ++i) {
+      const Rect& button = layout.buttons[i];
+      const bool primary = static_cast<int>(i) == primaryIndex;
+      const bool selected = static_cast<int>(i) == selectedIndex;
+      if (primary) {
+        renderer.fillRoundedRect(button.x, button.y, button.width, button.height, PiccoTokens::kSmallRadius,
+                                 Color::Black);
+      } else {
+        renderer.drawRoundedRect(button.x, button.y, button.width, button.height,
+                                 selected ? PiccoTokens::kSelectionStroke : PiccoTokens::kHairline,
+                                 PiccoTokens::kSmallRadius, true);
+      }
+      const char* label = labels[i] != nullptr ? labels[i] : "";
+      const EpdFontFamily::Style style = primary || selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+      const int textWidth = renderer.getTextWidth(fontId, label, style);
+      const int textY = button.y + (button.height - renderer.getLineHeight(fontId)) / 2;
+      renderer.drawText(fontId, button.x + (button.width - textWidth) / 2, textY, label, !primary, style);
+    }
+    return;
+  }
+#endif
 
   for (uint8_t i = 0; i < layout.count; ++i) {
     const Rect& button = layout.buttons[i];

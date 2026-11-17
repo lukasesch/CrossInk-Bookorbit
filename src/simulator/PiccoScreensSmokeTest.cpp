@@ -19,6 +19,7 @@
 #include "activities/boot_sleep/SleepActivity.h"
 #include "activities/home/HomeActivity.h"
 #include "activities/settings/SettingsActivity.h"
+#include "components/UITheme.h"
 
 #if CROSSINK_APP_CAP_TOUCH
 extern ActivityManager activityManager;
@@ -193,6 +194,14 @@ struct PiccoScreensSmokeTest {
     const int height = renderer.getScreenHeight();
 
     steps.push_back([] {
+#if CROSSINK_APP_PICCO_UI
+      // The captures are the Picco UI's visual gate: render every screen in the Picco theme.
+      {
+        RenderLock lock;
+        SETTINGS.uiTheme = CrossPointSettings::UI_THEME::PICCO;
+        UITheme::getInstance().reload();
+      }
+#endif
       activityManager.goHome();
       return SETTLE_TICKS;
     });

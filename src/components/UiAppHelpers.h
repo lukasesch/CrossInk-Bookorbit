@@ -211,6 +211,53 @@ inline int followListSelection(const int selectedIndex, const int topIndex, cons
       static_cast<uint16_t>(visibleRows > 0 ? visibleRows : 1), static_cast<uint16_t>(count)));
 }
 
+// Segmented bar (Picco): 1 px frame r16, padding 4, equal cells r12; the selected cell is a
+// 2 px stroke and bold label, never a fill. One tabBar call per cell keeps per-tab hit rects.
+template <size_t MaxInteractions>
+inline void drawUiSegmentedTabBar(freeink::ui::Screen<MaxInteractions>& screen, const freeink::ui::TabBarProps& props,
+                                  const freeink::ui::Rect rect) {
+  namespace fui = freeink::ui;
+  constexpr int16_t kFrame = 1;
+  constexpr int16_t kPad = 4;
+  constexpr uint8_t kOuterRadius = 16;
+  constexpr uint8_t kCellRadius = 12;
+  screen.target().stroke(rect, fui::Paint::solid(fui::Color::Black), kFrame, kOuterRadius);
+
+  fui::StyleSet cells;
+  cells.explicitlySet = true;
+  cells.normal.foreground = fui::Paint::solid(fui::Color::Black);
+  cells.selected = cells.normal;
+  cells.selected.border = fui::Paint::solid(fui::Color::Black);
+  cells.selected.borderWidth = 2;
+  cells.selected.radius = kCellRadius;
+  cells.focused = cells.selected;
+  cells.active = cells.selected;
+  cells.disabled = cells.normal;
+
+  const int16_t inset = kFrame + kPad;
+  const int16_t innerX = static_cast<int16_t>(rect.x + inset);
+  const int16_t innerW = static_cast<int16_t>(rect.width - 2 * inset);
+  const int16_t innerH = static_cast<int16_t>(rect.height - 2 * inset);
+  if (innerW <= 0 || innerH <= 0) return;
+  const int16_t cellW = static_cast<int16_t>((innerW - kPad * (props.count - 1)) / props.count);
+  for (uint8_t i = 0; i < props.count; ++i) {
+    const int16_t cellX = static_cast<int16_t>(innerX + i * (cellW + kPad));
+    const int16_t width = static_cast<int16_t>(i == props.count - 1 ? innerX + innerW - cellX : cellW);
+    fui::TabBarProps tab = props;
+    tab.tabs = &props.tabs[i];
+    tab.count = 1;
+    tab.gap = 0;
+    tab.divider = false;
+    tab.selectedUnderline = 0;
+    tab.tabInset = fui::Insets{};
+    tab.contentInset = fui::Insets{};  // a non-zero inset shrinks the cell to its label
+    tab.tabStyles = cells;
+    tab.text.bold = props.tabs[i].selected;
+    tab.text.align = fui::TextAlign::Center;
+    fui::tabBar(screen.frame(), fui::Rect{cellX, static_cast<int16_t>(rect.y + inset), width, innerH}, tab);
+  }
+}
+
 template <size_t MaxInteractions>
 inline void drawUiTabBar(freeink::ui::Screen<MaxInteractions>& screen, freeink::ui::TabBarProps props,
                          const freeink::ui::Rect rect, const ThemeTabBarAppearance appearance) {
@@ -222,6 +269,9 @@ inline void drawUiTabBar(freeink::ui::Screen<MaxInteractions>& screen, freeink::
   switch (appearance) {
     case ThemeTabBarAppearance::Pill:
       fui::tabBar(screen.frame(), rect, props);
+      return;
+    case ThemeTabBarAppearance::Segmented:
+      drawUiSegmentedTabBar(screen, props, rect);
       return;
     case ThemeTabBarAppearance::BorderedText:
       break;

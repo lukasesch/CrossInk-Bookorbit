@@ -23,6 +23,10 @@ int visibleHeaderHeight(const ThemeMetrics& metrics) {
 }
 
 int headerHeight(const ThemeMetrics& metrics) {
+#if CROSSINK_APP_PICCO_UI
+  // One 80 px header row on every Picco screen, touch or not.
+  if (UITheme::isPicco()) return metrics.headerHeight;
+#endif
   return gpio.hasTouch() ? kTouchHeaderHeight + UITheme::getDisplayStatusBarHeightIncrease()
                          : visibleHeaderHeight(metrics);
 }
@@ -56,6 +60,15 @@ int contentTop(const GfxRenderer& renderer) { return headerBottomY(renderer) + k
 void drawTitle(const GfxRenderer& renderer, const char* title, const bool showDate, const Rect* headerOverride) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect header = headerOverride ? *headerOverride : headerRect(renderer);
+#if CROSSINK_APP_PICCO_UI
+  // The Picco header has no date; the title sits in its single row.
+  if (UITheme::isPicco()) {
+    HeaderChrome chrome;
+    chrome.title = title;
+    GUI.drawHeaderChrome(renderer, header, chrome);
+    return;
+  }
+#endif
   const int pageWidth = header.x + header.width;
   GUI.drawHeader(renderer, header, "");
 

@@ -14,6 +14,15 @@ struct UIScaleSpec {
 
 inline UIScaleSpec uiScaleSpec() {
   UIScaleSpec spec{};
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+  // Picco's type scale is fixed (Inter 8 / 10 / 12 = 17 / 21 / 25 px); UI scale does not apply.
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::PICCO) {
+    spec.smallFontId = SMALL_FONT_ID;
+    spec.bodyFontId = UI_10_FONT_ID;
+    spec.titleFontId = UI_12_FONT_ID;
+    return spec;
+  }
+#endif
   switch (SETTINGS.uiScale) {
     case CrossPointSettings::UI_SCALE_SMALL:
       spec.bodyFontId = UI_10_FONT_ID;
