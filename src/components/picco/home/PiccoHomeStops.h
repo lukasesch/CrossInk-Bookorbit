@@ -123,6 +123,31 @@ inline void formatSyncAge(const uint32_t ageSeconds, const char* nowLabel, char*
   }
 }
 
+// Seconds since the newest of the last recorded sync and the snapshot's fetch (0 = none).
+// False when no age can be told: never synced, or the clock is not live now (a clock
+// restored after power-off lags by however long the device was off), or it reads earlier
+// than the sync.
+constexpr bool syncAgeSeconds(const bool clockLive, const uint32_t now, const uint32_t lastSyncAt,
+                              const uint32_t snapshotAt, uint32_t& ageSeconds) {
+  ageSeconds = 0;
+  const uint32_t newest = lastSyncAt > snapshotAt ? lastSyncAt : snapshotAt;
+  if (newest == 0 || !clockLive || now < newest) return false;
+  ageSeconds = now - newest;
+  return true;
+}
+
+// Header sync button label: the age, else syncLabel, so the button never stands bare.
+inline void formatSyncLabel(const bool clockLive, const uint32_t now, const uint32_t lastSyncAt,
+                            const uint32_t snapshotAt, const char* nowLabel, const char* syncLabel, char* out,
+                            const size_t outSize) {
+  uint32_t age = 0;
+  if (syncAgeSeconds(clockLive, now, lastSyncAt, snapshotAt, age)) {
+    formatSyncAge(age, nowLabel, out, outSize);
+  } else {
+    std::snprintf(out, outSize, "%s", syncLabel != nullptr ? syncLabel : "");
+  }
+}
+
 // Reading time: "47 min", "5 h 12 m", "21 h".
 inline void formatMinutes(const uint32_t minutes, char* out, const size_t outSize) {
   if (minutes < 60) {

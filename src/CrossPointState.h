@@ -44,6 +44,9 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   uint16_t releaseNotesSeen = 0;
   uint16_t releaseNotesUpdateTried = 0;
   PendingOverlayResume pendingOverlayResume{};
+  // Unix seconds of the last successful BookOrbit sync of any kind, recorded only while
+  // the clock was live (0 = none known).
+  uint32_t bookOrbitSyncedAt = 0;
 
   void setPendingOverlayResume(PendingOverlayResume value);
   bool consumePendingOverlayResume(PendingOverlayResume& value);

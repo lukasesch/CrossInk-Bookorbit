@@ -10,6 +10,7 @@
 #include <LibraryBuilder.h>
 #include <LibraryIndexFile.h>
 #include <Memory.h>
+#include <TrustedTime.h>
 
 #include <algorithm>
 #include <cctype>
@@ -20,6 +21,7 @@
 #include "BookOrbitCredentialStore.h"
 #include "BookOrbitHomeStore.h"
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
 #include "SilentRestart.h"
@@ -216,7 +218,7 @@ void PiccoHomeUi::drawHeader() {
   HeaderChrome chrome;
   chrome.title = tr(STR_HOME);
   chrome.leading = HeaderLeading::House;
-  char age[16] = {};
+  char age[24] = {};
   if (account) {
     if (syncing) {
       chrome.sync = HeaderSyncState::Syncing;
@@ -225,9 +227,9 @@ void PiccoHomeUi::drawHeader() {
     } else {
       chrome.sync = HeaderSyncState::Idle;
       const time_t now = time(nullptr);
-      if (syncedAt != 0 && now >= static_cast<time_t>(syncedAt)) {
-        PiccoHomeStops::formatSyncAge(static_cast<uint32_t>(now - syncedAt), tr(STR_PICCO_NOW), age, sizeof(age));
-      }
+      PiccoHomeStops::formatSyncLabel(trustedtime::isLive(), now > 0 ? static_cast<uint32_t>(now) : 0,
+                                      APP_STATE.bookOrbitSyncedAt, syncedAt, tr(STR_PICCO_NOW), tr(STR_PICCO_SYNC), age,
+                                      sizeof(age));
       chrome.syncLabel = age;
     }
   }
@@ -380,14 +382,15 @@ void PiccoHomeUi::drawTiles() const {
   char bookOrbit[40];
   if (!account) {
     std::snprintf(bookOrbit, sizeof(bookOrbit), "%s", tr(STR_CONNECT));
-  } else if (!hasSnapshot) {
+  } else if (!hasSnapshot && APP_STATE.bookOrbitSyncedAt == 0) {
     std::snprintf(bookOrbit, sizeof(bookOrbit), "%s", tr(STR_HOME_NOT_SYNCED));
   } else {
     const time_t now = time(nullptr);
-    const bool known = syncedAt != 0 && now >= static_cast<time_t>(syncedAt);
-    const uint32_t ageSeconds = known ? static_cast<uint32_t>(now - syncedAt) : 0;
+    uint32_t ageSeconds = 0;
+    const bool known = PiccoHomeStops::syncAgeSeconds(trustedtime::isLive(), now > 0 ? static_cast<uint32_t>(now) : 0,
+                                                      APP_STATE.bookOrbitSyncedAt, syncedAt, ageSeconds);
     if (!known || ageSeconds < 60) {
-      std::snprintf(bookOrbit, sizeof(bookOrbit), "%s", known ? tr(STR_PICCO_NOW) : "");
+      std::snprintf(bookOrbit, sizeof(bookOrbit), "%s", known ? tr(STR_PICCO_NOW) : tr(STR_PICCO_SYNC));
     } else {
       char age[16];
       PiccoHomeStops::formatSyncAge(ageSeconds, tr(STR_PICCO_NOW), age, sizeof(age));

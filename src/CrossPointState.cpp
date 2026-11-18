@@ -150,6 +150,7 @@ void CrossPointState::toJson(JsonDocument& doc) const {
   doc["pendingOverlayReturnHome"] = pendingOverlayResume.returnHomeAfterReaderFlow;
   doc["pendingOverlayReaderOrientation"] = pendingOverlayResume.readerOrientation;
   doc["pendingOverlayPreserveReaderOrientation"] = pendingOverlayResume.preserveReaderOrientation;
+  doc["bookOrbitSyncedAt"] = bookOrbitSyncedAt;
 }
 
 bool CrossPointState::fromJson(JsonVariantConst doc) {
@@ -208,6 +209,7 @@ bool CrossPointState::fromJson(JsonVariantConst doc) {
   pendingOverlayResume.returnHomeAfterReaderFlow = doc["pendingOverlayReturnHome"] | false;
   pendingOverlayResume.readerOrientation = doc["pendingOverlayReaderOrientation"] | static_cast<uint8_t>(0);
   pendingOverlayResume.preserveReaderOrientation = doc["pendingOverlayPreserveReaderOrientation"] | false;
+  bookOrbitSyncedAt = doc["bookOrbitSyncedAt"] | static_cast<uint32_t>(0);
   return true;
 }
 

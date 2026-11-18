@@ -21,6 +21,7 @@
 #include <esp_sntp.h>
 #endif
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -57,6 +58,8 @@ std::mutex persistedFloorLock;
 // Separate from the floor lock: the lwIP callback must persist time while we wait.
 std::mutex syncLock;
 int64_t ramFloor = 0;
+// Set from the SNTP callback's lwIP task as well as the main task.
+std::atomic<bool> liveClock{false};
 portMUX_TYPE ramFloorLock = portMUX_INITIALIZER_UNLOCKED;
 
 // Raises the in-RAM floor to `value` if higher; returns the resulting floor.
@@ -91,7 +94,10 @@ void writeFloor(int64_t) {}
 #endif
 
 // SNTP sync callback (lwIP task context; Preferences/NVS is mutex-guarded).
-void onTimeSynced(struct timeval*) { note(); }
+void onTimeSynced(struct timeval*) {
+  liveClock = true;
+  note();
+}
 
 #ifndef SIMULATOR
 esp_err_t clearDnsCache(void*) {
@@ -124,6 +130,7 @@ void configureSntp() {
 void init() {
   std::lock_guard<std::mutex> lock(persistedFloorLock);
   sntp_set_time_sync_notification_cb(&onTimeSynced);
+  if (static_cast<int64_t>(time(nullptr)) >= MIN_VALID_EPOCH) liveClock = true;
   const int64_t floor = readFloor();
   if (floor < MIN_VALID_EPOCH) return;
   raiseFloor(floor);
@@ -163,6 +170,7 @@ void adopt(const int64_t epoch) {
   const int64_t candidate = nowPlausible && now > epoch ? now : epoch;
   if (candidate < raiseFloor(0)) return;  // never rewind below a time we already trust
   raiseFloor(candidate);
+  liveClock = true;
   timeval tv = {static_cast<time_t>(candidate), 0};
 #ifndef SIMULATOR
   settimeofday(&tv, nullptr);
@@ -203,6 +211,7 @@ bool syncNow(const uint32_t timeoutMs) {
     LOG_ERR("TIME", "NTP sync failed: sync=%s DNS=%s", esp_err_to_name(syncResult), esp_err_to_name(clearResult));
     return false;
   }
+  liveClock = true;
   note();
   return true;
 #else
@@ -213,7 +222,10 @@ bool syncNow(const uint32_t timeoutMs) {
     delay(100);
   }
   const bool synced = sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
-  if (synced) note();
+  if (synced) {
+    liveClock = true;
+    note();
+  }
   return synced;
 #endif
 }
@@ -224,5 +236,7 @@ int64_t trustedNow() {
   const int64_t floor = raiseFloor(now >= MIN_VALID_EPOCH ? now : 0);
   return floor >= MIN_VALID_EPOCH ? floor : 0;
 }
+
+bool isLive() { return liveClock; }
 
 }  // namespace trustedtime

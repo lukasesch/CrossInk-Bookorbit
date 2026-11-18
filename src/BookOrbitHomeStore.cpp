@@ -4,6 +4,7 @@
 #include <JpegToBmpConverter.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <TrustedTime.h>
 
 #include <cstddef>
 #include <cstdio>
@@ -14,6 +15,7 @@
 
 #include "BookOrbitCredentialStore.h"
 #include "BookOrbitStatsQueue.h"
+#include "CrossPointState.h"
 #include "activities/reader/GlobalReadingStats.h"
 #include "activities/reader/ReadingDailyMinutes.h"
 #include "activities/reader/ReadingStatsUtils.h"
@@ -329,10 +331,24 @@ bool refresh(const StopCheck shouldStop, const CoverSizes& sizes) {
     return false;
   }
   rebuildPendingReading();
+  noteSyncSucceeded();
 
   fetchMissingCovers(*next, shouldStop, sizes);
   evictCovers(*next, sizes);
   return true;
+}
+
+void noteSyncSucceeded() {
+  const time_t now = time(nullptr);
+  if (!trustedtime::isLive() || now < static_cast<time_t>(MIN_PLAUSIBLE_EPOCH)) {
+    LOG_DBG("BookOrbit", "Sync not dated: the clock is not live");
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(APP_STATE.getMutex());
+    APP_STATE.bookOrbitSyncedAt = static_cast<uint32_t>(now);
+  }
+  APP_STATE.saveToFile();
 }
 
 bool shelvesFollowSettings() {

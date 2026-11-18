@@ -85,6 +85,10 @@ bool load(BookOrbitHomeSnapshot& out);
 // pending time of ReadingDailyMinutes.
 bool refresh(StopCheck shouldStop, const CoverSizes& sizes);
 
+// Records a successful BookOrbit sync of any kind (APP_STATE.bookOrbitSyncedAt). Only
+// while the clock is live: a restored clock would date it wrong.
+void noteSyncSucceeded();
+
 // False when the snapshot's shelves are not the ones the BookOrbit settings choose, so
 // the next sync would change them. True without a snapshot: there is nothing to follow.
 bool shelvesFollowSettings();

@@ -10,6 +10,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <SdCardFontSystem.h>
+#include <TrustedTime.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -19,6 +20,7 @@
 #include "BookOrbitCredentialStore.h"
 #include "BookOrbitHomeStore.h"
 #include "CrossPointSettings.h"
+#include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/ActivityManager.h"
@@ -35,9 +37,9 @@
 #include "components/picco/home/PiccoHomeStops.h"
 #include "components/picco/sheet/PiccoSheetDraw.h"
 #include "components/picco/sheet/ReaderSheetDetails.h"
-#include "util/QrUtils.h"
 #include "fontIds.h"
 #include "util/ImageDisplayMode.h"
+#include "util/QrUtils.h"
 #include "util/SlideSwitch.h"
 #if CROSSINK_SCALABLE_FONTS
 #include "TtfRenderProfileStore.h"
@@ -816,7 +818,7 @@ void FrontlightPanelActivity::sheetDraw() {
 void FrontlightPanelActivity::sheetDrawHeader() {
   const Rect header{0, 0, renderer.getScreenWidth(), PiccoTokens::kHeaderHeight};
   HeaderChrome chrome;
-  char age[16] = {};
+  char age[24] = {};
   if (sheetPane == Pane::Main) {
     chrome.title = tr(STR_HOME);
     chrome.leading = HeaderLeading::House;
@@ -826,10 +828,9 @@ void FrontlightPanelActivity::sheetDrawHeader() {
       } else {
         chrome.sync = HeaderSyncState::Idle;
         const time_t now = time(nullptr);
-        if (sheetSyncedAt != 0 && now >= static_cast<time_t>(sheetSyncedAt)) {
-          PiccoHomeStops::formatSyncAge(static_cast<uint32_t>(now - sheetSyncedAt), tr(STR_PICCO_NOW), age,
-                                        sizeof(age));
-        }
+        PiccoHomeStops::formatSyncLabel(trustedtime::isLive(), now > 0 ? static_cast<uint32_t>(now) : 0,
+                                        APP_STATE.bookOrbitSyncedAt, sheetSyncedAt, tr(STR_PICCO_NOW),
+                                        tr(STR_PICCO_SYNC), age, sizeof(age));
         chrome.syncLabel = age;
       }
     }
@@ -876,6 +877,7 @@ void FrontlightPanelActivity::sheetDrawMain() {
   const int w = renderer.getScreenWidth();
   const bool book = sheetVariant != Variant::Outside;
   const auto& details = context.bookDetails;
+  const ReaderSheetDetails* d = context.readerSheet.get();
   const Tiles tiles = sheetTiles();
   const MainLayout m = mainLayout(w, book, book && !details.author.empty(), Frontlight.hasColorTemperature(),
                                   tiles.count, sheetVariant == Variant::Epub);
@@ -914,6 +916,28 @@ void FrontlightPanelActivity::sheetDrawMain() {
       const int x = m.goToFoot.right() - chevron - labelW;
       D::text(renderer, SMALL_FONT_ID, Box{x, m.goToFoot.y, labelW + 1, m.goToFoot.height}, goTo, EpdFontFamily::BOLD);
       D::icon(renderer, icon_picco_chevron_right_22, Box{x + labelW, m.goToFoot.y, chevron, m.goToFoot.height});
+      // Line 3 left (board T_ReaderSheetDivider): the pace estimate, else the pages still to go.
+      char left[64] = {};
+      const uint32_t minutesLeft = d ? d->chapterMinutesLeft : 0;
+      if (minutesLeft > 0) {
+        std::snprintf(left, sizeof(left), tr(STR_PICCO_SHEET_MIN_LEFT_CHAPTER_FORMAT),
+                      static_cast<unsigned>(minutesLeft));
+      } else if (details.chapterPageCount > 0) {
+        const uint32_t page = std::min(details.chapterPage, details.chapterPageCount);
+        const uint32_t pagesLeft = details.chapterPageCount - page;
+        if (pagesLeft == 0) {
+          std::snprintf(left, sizeof(left), "%s", tr(STR_PICCO_SHEET_LAST_PAGE_CHAPTER));
+        } else if (pagesLeft == 1) {
+          std::snprintf(left, sizeof(left), "%s", tr(STR_PICCO_SHEET_PAGE_LEFT_CHAPTER));
+        } else {
+          std::snprintf(left, sizeof(left), tr(STR_PICCO_SHEET_PAGES_LEFT_CHAPTER_FORMAT),
+                        static_cast<unsigned>(pagesLeft));
+        }
+      }
+      if (left[0] != '\0') {
+        D::text(renderer, SMALL_FONT_ID,
+                Box{m.goToFoot.x, m.goToFoot.y, x - PiccoTokens::kGroupGap - m.goToFoot.x, m.goToFoot.height}, left);
+      }
       sheetAddTarget(m.goTo, SheetHit::GoToBlock, 0, 0, sheetAddStop(m.goTo, PiccoTokens::kSmallRadius, false));
     }
   }
@@ -922,7 +946,6 @@ void FrontlightPanelActivity::sheetDrawMain() {
   D::hairline(renderer, m.band.x, m.band.bottom() - PiccoTokens::kHairline, m.band.width);
   for (int i = 0; i < m.lightRows; ++i) sheetDrawLight(m.light[static_cast<size_t>(i)], i);
 
-  const ReaderSheetDetails* d = context.readerSheet.get();
   for (int i = 0; i < m.tileCount; ++i) {
     const Box& box = m.tiles[static_cast<size_t>(i)];
     const Tile tile = tiles.items[static_cast<size_t>(i)];

@@ -50,4 +50,10 @@ bool syncNow(uint32_t timeoutMs);
 // an expiry. Callers enforcing a date fail closed on 0.
 int64_t trustedNow();
 
+// True when time() is real time right now: the clock was already running at
+// init() (deep sleep kept it), a battery-backed RTC seeded it, or SNTP synced
+// it this boot. False while it only stands on the restored floor, which lags
+// by however long the device was powered off.
+bool isLive();
+
 }  // namespace trustedtime

@@ -4337,7 +4337,6 @@ void EpubReaderActivity::openWordSelect(bool framebufferContainsPage, int initia
   });
 }
 
-
 // The words of the page on screen, space-separated (QR payload).
 std::string EpubReaderActivity::currentPageText() {
   std::string fullText;
@@ -5169,6 +5168,10 @@ bool EpubReaderActivity::fillReaderSheetDetails(ReaderSheetDetails& details) {
   details.footnoteCount = static_cast<uint16_t>(std::min<size_t>(currentPageFootnotes.size(), UINT16_MAX));
   details.hasDictionary = !previewActive && Dictionary::exists(epub->getCachePath().c_str());
   details.completed = stats.isCompleted;
+  uint32_t chapterSecondsLeft = 0;
+  if (!previewActive && estimateTimeLeftSeconds(false, chapterSecondsLeft)) {
+    details.chapterMinutesLeft = std::max<uint32_t>(1, (chapterSecondsLeft + 30u) / 60u);
+  }
   const int totalPages = section ? section->estimatedTotalPages() : 0;
   if (section && totalPages > 0 && !previewActive) {
     const float progress = static_cast<float>(section->currentPage) / totalPages;

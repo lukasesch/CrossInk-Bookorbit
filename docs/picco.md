@@ -43,13 +43,16 @@ reader sheet, and the reader has no separate menu any more:
 | Up + Down | Touch back on; with touch on, its mapped action (reader menu = sheet) | Same | Touch back on, else its mapped action |
 | Back / Confirm (button-only devices) | Back setting / reader sheet | Same | Back / select |
 
-The EPUB sheet shows the book, its progress (tap for **Go to**), brightness and
+The EPUB sheet shows the book, its progress with the reading time (or pages)
+left in the chapter (tap for **Go to**), brightness and
 warmth, and four tiles: **Text** (font, size, spacing, margins, alignment,
 orientation, paragraphs and style; **More text options** in its header),
 **Bookmark** (adds or removes the page bookmark), **Contents** and **More**
 (navigation, words, sync and share, this book, **Advanced**). TXT shows the
 book and the light; XTC adds **Contents** and **More** (its menu list). The
-sync button in the header runs BookOrbit sync. Inside the sheet, swipe up or
+sync button in the header runs BookOrbit sync and shows how long ago the last
+sync was, or **Sync** while the reader does not know the time (after a sleep
+without **Keep Clock While Asleep**, until the next sync sets the clock). Inside the sheet, swipe up or
 tap below it to close it, swipe left or right to switch a pane's two tabs, and
 use the chevron or Back to go up one pane. With buttons, the first press shows
 a focus ring; Confirm on a slider or stepper starts editing and Up / Down then

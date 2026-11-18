@@ -28,6 +28,12 @@ std::string syncAge(const uint32_t seconds) {
   return out;
 }
 
+std::string syncLabel(const bool live, const uint32_t now, const uint32_t lastSync, const uint32_t snapshot) {
+  char out[16];
+  PiccoHomeStops::formatSyncLabel(live, now, lastSync, snapshot, "now", "Sync", out, sizeof(out));
+  return out;
+}
+
 std::string minutes(const uint32_t m) {
   char out[24];
   PiccoHomeStops::formatMinutes(m, out, sizeof(out));
@@ -150,4 +156,26 @@ TEST(PiccoHome, SyncNeedsAnAccount) {
   EXPECT_TRUE(PiccoHomeStops::targetRect(kHome, Target::Sync, Box{}).empty());
   EXPECT_EQ(PiccoHomeStops::actionFor(Target::Stats, HeroMode::Empty, false), Action::OpenStats);
   EXPECT_EQ(PiccoHomeStops::actionFor(Target::Files, HeroMode::Book, false), Action::OpenFiles);
+}
+
+TEST(PiccoHome, SyncLabelCountsFromTheNewestSync) {
+  constexpr uint32_t kNow = 1800000000u;
+  // A reading sync after the last Home refresh: the age counts from the reading sync.
+  EXPECT_EQ(syncLabel(true, kNow, kNow - 120, kNow - 7200), "2 min");
+  // A Home refresh after the last reading sync.
+  EXPECT_EQ(syncLabel(true, kNow, kNow - 7200, kNow - 120), "2 min");
+  EXPECT_EQ(syncLabel(true, kNow, kNow - 30, 0), "now");
+  EXPECT_EQ(syncLabel(true, kNow, 0, kNow - 3 * 3600), "3 h");
+}
+
+TEST(PiccoHome, SyncLabelSaysSyncWithoutAnAge) {
+  constexpr uint32_t kNow = 1800000000u;
+  EXPECT_EQ(syncLabel(true, kNow, 0, 0), "Sync");                    // never synced
+  EXPECT_EQ(syncLabel(false, kNow, kNow - 120, kNow - 60), "Sync");  // clock restored, not live
+  EXPECT_EQ(syncLabel(true, kNow - 600, kNow, 0), "Sync");           // clock reads before the sync
+  uint32_t age = 1;
+  EXPECT_FALSE(PiccoHomeStops::syncAgeSeconds(false, kNow, kNow - 120, 0, age));
+  EXPECT_EQ(age, 0u);
+  EXPECT_TRUE(PiccoHomeStops::syncAgeSeconds(true, kNow, kNow - 120, kNow - 600, age));
+  EXPECT_EQ(age, 120u);
 }

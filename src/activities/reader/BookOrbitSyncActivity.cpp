@@ -583,6 +583,8 @@ void BookOrbitSyncActivity::performSync() {
                 static_cast<int>(sweepResult), httpCode);
       }
     }
+    // Stats, highlights and bookmarks went through: the header's sync age counts from here.
+    BookOrbitHomeStore::noteSyncSucceeded();
     if (stopIfWoken()) return;
   }
 

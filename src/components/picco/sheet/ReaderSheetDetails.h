@@ -36,6 +36,9 @@ struct ReaderSheetDetails {
   uint32_t stablePageCount = 0;
   uint16_t footnoteCount = 0;
   uint16_t bookmarkCount = 0;
+  // Reading-pace estimate for the rest of the chapter (the status bar's chapter time left);
+  // 0 while the pace is still being learned.
+  uint32_t chapterMinutesLeft = 0;
   uint16_t autoPageTurnSeconds = 30;
   bool autoPageTurnActive = false;
   bool hasFootnotes = false;
