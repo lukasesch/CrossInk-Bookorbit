@@ -17,6 +17,12 @@
 #include "util/Dictionary.h"
 #include "util/DictionaryActivityUtils.h"
 #include "util/LookupHistory.h"
+#if CROSSINK_APP_PICCO_UI
+#include "PiccoReaderLists.h"
+#include "components/picco/PiccoListUi.h"
+#include "components/picco/PiccoPageIndicator.h"
+#include "components/picco/PiccoTheme.h"
+#endif
 
 namespace fui = freeink::ui;
 
@@ -51,6 +57,21 @@ const char* LookedUpWordsActivity::glyphFor(LookupHistory::Status s) {
   }
 }
 
+const char* LookedUpWordsActivity::statusText(const LookupHistory::Status s) {
+  switch (s) {
+    case LookupHistory::Status::Direct:
+      return tr(STR_PICCO_LOOKUP_FOUND);
+    case LookupHistory::Status::Stem:
+    case LookupHistory::Status::AltForm:
+      return tr(STR_PICCO_LOOKUP_WORD_FORM);
+    case LookupHistory::Status::Suggestion:
+      return tr(STR_PICCO_LOOKUP_SUGGESTION);
+    case LookupHistory::Status::NotFound:
+      return tr(STR_PICCO_LOOKUP_NOT_FOUND);
+  }
+  return "";
+}
+
 void LookedUpWordsActivity::onEnter() {
   Activity::onEnter();
   selectedIndex = 0;
@@ -71,9 +92,12 @@ void LookedUpWordsActivity::reloadEntries() {
   uiItems.clear();
   uiItems.reserve(entries.size());
   for (size_t i = 0; i < entries.size(); ++i) {
-    labels.push_back(std::string(glyphFor(entries[i].status)) + " " + entries[i].word);
+    // Picco shows the match as a subtitle instead of a glyph (T_LookupHistory).
+    labels.push_back(UITheme::isPicco() ? entries[i].word
+                                        : std::string(glyphFor(entries[i].status)) + " " + entries[i].word);
     fui::ListItem item;
     item.label = labels.back().c_str();
+    if (UITheme::isPicco()) item.subtitle = statusText(entries[i].status);
     item.actionValue = static_cast<int16_t>(i);
     uiItems.push_back(item);
   }
@@ -99,11 +123,20 @@ void LookedUpWordsActivity::historyScreen(UiApp::ScreenType& screen, void* user)
 
 void LookedUpWordsActivity::buildHistoryScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  setUiContentMargin(
-      screen, renderer,
-      fui::Insets{
-          static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing), 0,
-          static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer) + metrics.verticalSpacing), 0});
+  const bool picco = UITheme::isPicco();
+#if CROSSINK_APP_PICCO_UI
+  if (picco) {
+    screen.setContentMarginFromScreen(
+        PiccoReaderLists::listInsets(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput), false));
+  } else
+#endif
+  {
+    setUiContentMargin(
+        screen, renderer,
+        fui::Insets{
+            static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput) + metrics.verticalSpacing), 0,
+            static_cast<int16_t>(UITheme::getButtonHintsReserve(renderer) + metrics.verticalSpacing), 0});
+  }
 
   fui::ListProps props;
   props.items = uiItems.data();
@@ -114,7 +147,17 @@ void LookedUpWordsActivity::buildHistoryScreen(UiApp::ScreenType& screen) {
   props.inputMask = static_cast<uint16_t>(fui::InputTouch | fui::InputLongPress);
   props.labelText = screen.theme().bodyText;
   props.labelText.maxLines = 2;
-  const auto rows = configureUiList(props, screen.theme(), screen.body());
+#if CROSSINK_APP_PICCO_UI
+  PiccoReaderLists::BookFontScope bookFont(uiTarget, picco);
+  if (picco) {
+    props.labelText.font = PiccoReaderLists::BookFontScope::kSlot;
+    props.labelText.bold = true;
+    props.labelText.maxLines = 1;
+    props.subtitleText = screen.theme().smallText;
+  }
+#endif
+  const auto rows = configureUiList(props, screen.theme(), screen.body(),
+                                    picco ? UiListRowType::WithSubtitle : UiListRowType::SingleLine);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(entries.size()));
   props.topIndex = static_cast<uint16_t>(topIndex);
@@ -143,6 +186,24 @@ void LookedUpWordsActivity::showDeleteConfirmation(const bool ignoreInitialConfi
       if (selectedIndex >= static_cast<int>(entries.size())) {
         selectedIndex = std::max(0, static_cast<int>(entries.size()) - 1);
       }
+    }
+    requestUpdate();
+  });
+}
+
+void LookedUpWordsActivity::showClearConfirmation() {
+  auto confirmation = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_PICCO_CLEAR_LOOKUPS),
+                                                              std::string{}, false, true);
+  if (!confirmation) {
+    LOG_ERR("LOOKUP", "OOM: ConfirmationActivity");
+    return;
+  }
+  startActivityForResult(std::move(confirmation), [this](const ActivityResult& result) {
+    if (!result.isCancelled) {
+      LookupHistory::clear(cachePath);
+      selectedIndex = 0;
+      topIndex = 0;
+      reloadEntries();
     }
     requestUpdate();
   });
@@ -195,6 +256,13 @@ void LookedUpWordsActivity::loop() {
     DictUtils::cancelAndFinish(*this);
     return;
   }
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco() && !entries.empty() && piccoClearRect.width > 0 &&
+      mappedInput.wasTapInRect(piccoClearRect.x, piccoClearRect.y, piccoClearRect.width, piccoClearRect.height)) {
+    showClearConfirmation();
+    return;
+  }
+#endif
 
   if (entries.empty()) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
@@ -273,6 +341,31 @@ void LookedUpWordsActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
 
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput);
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    HeaderChrome chrome;
+    chrome.title = tr(STR_LOOKUP_HISTORY);
+    chrome.leading = HeaderLeading::Back;
+    chrome.readerContext = true;
+    if (!entries.empty()) chrome.contextualLabel = tr(STR_CLEAR_BUTTON);
+    GUI.drawHeaderChrome(renderer, header, chrome);
+    const auto layout = PiccoTheme::headerLayout(renderer, header, chrome);
+    piccoClearRect = entries.empty() ? Rect{} : PiccoListUi::toRect(layout.contextual);
+    if (entries.empty()) {
+      const int top = PiccoReaderLists::listTop(PiccoReaderLists::screenBox(renderer),
+                                                PiccoReaderLists::headerBottom(header), false);
+      renderer.drawCenteredText(UI_10_FONT_ID, top + (PiccoPageIndicator::listBottom(renderer) - top) / 2,
+                                tr(STR_LOOKUP_HISTORY_EMPTY));
+    } else {
+      uiReady = false;
+      renderUiApp(app, uiTarget);
+      uiReady = true;
+      PiccoPageIndicator::drawForList(renderer, topIndex, visibleRows, static_cast<int>(entries.size()));
+    }
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    return;
+  }
+#endif
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_LOOKUP_HISTORY), true);
   } else {

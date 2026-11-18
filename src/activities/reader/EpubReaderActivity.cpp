@@ -3723,6 +3723,12 @@ void EpubReaderActivity::loop() {
       case EndOfBookOptions::Action::GoHome:
         onGoHome();
         return;
+      case EndOfBookOptions::Action::OpenStats:
+        onReaderMenuConfirm(EpubReaderMenuAction::READING_STATS);
+        return;
+      case EndOfBookOptions::Action::OpenLibrary:
+        activityManager.goToLibrary();
+        return;
       case EndOfBookOptions::Action::LastPage:
         currentSpineIndex = std::max(epub->getSpineItemsCount() - 1, 0);
         nextPageNumber = 0;
@@ -4131,6 +4137,35 @@ void EpubReaderActivity::jumpToStablePage(const uint32_t page) {
   armReadingPaceWarmup("stable_page_jump");
 }
 
+void EpubReaderActivity::applyBookmarkJump(const BookmarkResult& bm) {
+  RenderLock lock(*this);
+  clearFootnotePreviewState();
+  if (section && currentSpineIndex == bm.spineIndex) {
+    bool resolved = false;
+    const uint16_t fallbackPage =
+        pageFromStoredProgress(bm.progress, static_cast<uint16_t>(section->estimatedTotalPages()));
+    if (bm.paragraphIndex != UINT16_MAX) {
+      section->currentPage = resolveParagraphJumpPage(*section, bm.paragraphIndex, fallbackPage);
+      resolved = true;
+      LOG_DBG("ERS", "Resolved bookmark paragraph %u to page %d", bm.paragraphIndex, section->currentPage);
+    }
+    if (!resolved) {
+      section->currentPage = fallbackPage;
+    }
+    nextPageNumber = section->currentPage;
+    pendingPercentJump = false;
+    pendingParagraphIndex = UINT16_MAX;
+  } else {
+    currentSpineIndex = bm.spineIndex;
+    pendingSpineProgress = bm.progress;
+    pendingParagraphIndex = bm.paragraphIndex;
+    pendingPercentJump = true;
+    section.reset();
+  }
+  armReadingPaceWarmup("bookmark_jump");
+  pauseReadingPaceTimer("bookmark_jump");
+}
+
 void EpubReaderActivity::handleClippingJump(const ClippingJumpResult& clipping) {
   clearPendingManualPageTurns();
   RenderLock lock(*this);
@@ -4379,6 +4414,17 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       }
       pauseReadingPaceTimer("chapter_selection");
       startActivityForResult(std::move(chapterSelection), [this, returnToReaderMenu](const ActivityResult& result) {
+        // Picco Contents also lists bookmarks and clippings: a jump from those tabs.
+        if (const auto* bookmark = std::get_if<BookmarkResult>(&result.data); bookmark && !result.isCancelled) {
+          applyBookmarkJump(*bookmark);
+          requestUpdate();
+          return;
+        }
+        if (const auto* clipping = std::get_if<ClippingJumpResult>(&result.data); clipping && !result.isCancelled) {
+          handleClippingJump(*clipping);
+          requestUpdate();
+          return;
+        }
         if (!result.isCancelled) {
           const auto& chapterResult = std::get<ChapterResult>(result.data);
           RenderLock lock(*this);
@@ -4974,33 +5020,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       pauseReadingPaceTimer("bookmark_list");
       startActivityForResult(std::move(bookmarkList), [this, returnToReaderMenu](const ActivityResult& result) {
         if (!result.isCancelled) {
-          const auto& bm = std::get<BookmarkResult>(result.data);
-          RenderLock lock(*this);
-          clearFootnotePreviewState();
-          if (section && currentSpineIndex == bm.spineIndex) {
-            bool resolved = false;
-            const uint16_t fallbackPage =
-                pageFromStoredProgress(bm.progress, static_cast<uint16_t>(section->estimatedTotalPages()));
-            if (bm.paragraphIndex != UINT16_MAX) {
-              section->currentPage = resolveParagraphJumpPage(*section, bm.paragraphIndex, fallbackPage);
-              resolved = true;
-              LOG_DBG("ERS", "Resolved bookmark paragraph %u to page %d", bm.paragraphIndex, section->currentPage);
-            }
-            if (!resolved) {
-              section->currentPage = fallbackPage;
-            }
-            nextPageNumber = section->currentPage;
-            pendingPercentJump = false;
-            pendingParagraphIndex = UINT16_MAX;
-          } else {
-            currentSpineIndex = bm.spineIndex;
-            pendingSpineProgress = bm.progress;
-            pendingParagraphIndex = bm.paragraphIndex;
-            pendingPercentJump = true;
-            section.reset();
-          }
-          armReadingPaceWarmup("bookmark_jump");
-          pauseReadingPaceTimer("bookmark_jump");
+          applyBookmarkJump(std::get<BookmarkResult>(result.data));
         } else {
           resumeReadingPaceTimer("bookmark_list_cancel");
           if (returnToReaderMenu) {
@@ -7034,6 +7054,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       endOfBookOptions->loadOnce(epub->getPath());
       endOfBookMenuActive.store(endOfBookOptions->menuActive(), std::memory_order_relaxed);
       mappedInput.setMenuMode(endOfBookOptions->menuActive());
+      endOfBookOptions->setFinishedBook(epub->getTitle(), epub->getAuthor(), stats);
       endOfBookOptions->render(renderer, mappedInput);
     }
     openingFeedback.finish();

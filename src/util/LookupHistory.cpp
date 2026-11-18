@@ -104,6 +104,14 @@ std::vector<LookupHistory::Entry> LookupHistory::load(const std::string& cachePa
   return entries;
 }
 
+bool LookupHistory::clear(const std::string& cachePath) {
+  const std::string path = filePath(cachePath);
+  if (!Storage.exists(path.c_str())) return true;
+  if (Storage.remove(path.c_str())) return true;
+  LOG_ERR("LH", "Could not clear %s", path.c_str());
+  return false;
+}
+
 bool LookupHistory::removeRecentAt(const std::string& cachePath, int indexFromNewest) {
   if (indexFromNewest < 0) return false;
   const std::string path = filePath(cachePath);

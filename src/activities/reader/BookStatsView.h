@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "AppCapabilities.h"
 #include "BookReadingStats.h"
 #include "DailyReadingStats.h"
 #include "GlobalReadingStats.h"
@@ -40,3 +41,17 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
 
 void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const std::string& bookTitle,
                              const BookReadingStats& stats, int selectedField, bool showButtonHints);
+
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoLayout.h"
+
+// Picco per-book stats (T_BookStats): title, stat strip, progress, day-of-week chart, time of
+// day. Tapping the dates row registers BookStatsTouchTarget::StartedDaysStat (date editor).
+void renderPiccoPerBookStatsPage(GfxRenderer& renderer, const std::string& bookTitle, const BookReadingStats& stats,
+                                 float progressPercent, bool hasEstimatedTimeLeft, uint32_t estimatedTimeLeftSeconds,
+                                 bool showEditTarget);
+
+// Three figures between two hairlines with dividers (T_BookStats, T_EndOfBook).
+void drawPiccoStatsStrip(const GfxRenderer& renderer, const PiccoLayout::Box& strip, const char* const* values,
+                         const char* const* labels);
+#endif

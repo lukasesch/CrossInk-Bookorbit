@@ -4,14 +4,22 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <cstdio>
 
 #include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
+#include "Memory.h"
 #include "components/TouchHeaderBackButton.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "util/InputReleaseGuard.h"
+#if CROSSINK_APP_PICCO_UI
+#include "EpubReaderBookmarkListActivity.h"
+#include "EpubReaderClippingListActivity.h"
+#include "PiccoReaderLists.h"
+#include "components/picco/PiccoPageIndicator.h"
+#endif
 
 namespace fui = freeink::ui;
 
@@ -32,6 +40,47 @@ EpubReaderChapterSelectionActivity::EpubReaderChapterSelectionActivity(GfxRender
       app(uiTarget, uiTarget.deviceContext()) {}
 
 int EpubReaderChapterSelectionActivity::getTotalItems() const { return epub->getTocItemsCount(); }
+
+Rect EpubReaderChapterSelectionActivity::headerRect() const {
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  return TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
+}
+
+void EpubReaderChapterSelectionActivity::openContentsTab(const uint8_t tab) {
+#if CROSSINK_APP_PICCO_UI
+  using PiccoReaderLists::ContentsTab;
+  std::unique_ptr<Activity> list;
+  if (tab == static_cast<uint8_t>(ContentsTab::Bookmarks)) {
+    auto bookmarks = makeUniqueNoThrow<EpubReaderBookmarkListActivity>(renderer, mappedInput);
+    if (bookmarks) bookmarks->showContentsTabs();
+    list = std::move(bookmarks);
+  } else if (tab == static_cast<uint8_t>(ContentsTab::Clippings)) {
+    auto clippings = makeUniqueNoThrow<EpubReaderClippingListActivity>(renderer, mappedInput);
+    if (clippings) clippings->showContentsTabs();
+    list = std::move(clippings);
+  } else {
+    requestUpdate();
+    return;
+  }
+  if (!list) {
+    LOG_ERR("ERCS", "OOM: contents tab %u", static_cast<unsigned>(tab));
+    requestUpdate();
+    return;
+  }
+  // A jump or Back from the tab leaves Contents with that result; a tab tap switches.
+  startActivityForResult(std::move(list), [this](const ActivityResult& result) {
+    if (const auto* next = std::get_if<ContentsTabResult>(&result.data)) {
+      openContentsTab(next->tab);
+      return;
+    }
+    ActivityResult forwarded = result;
+    setResult(std::move(forwarded));
+    finish();
+  });
+#else
+  (void)tab;
+#endif
+}
 
 void EpubReaderChapterSelectionActivity::onEnter() {
   Activity::onEnter();
@@ -92,9 +141,14 @@ void EpubReaderChapterSelectionActivity::loop() {
   }
 
   const int totalItems = getTotalItems();
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
+  const Rect header = headerRect();
+#if CROSSINK_APP_PICCO_UI
+  PiccoReaderLists::ContentsTab tab;
+  if (UITheme::isPicco() && PiccoReaderLists::contentsTabTapped(mappedInput, renderer, header, tab)) {
+    if (tab != PiccoReaderLists::ContentsTab::Chapters) openContentsTab(static_cast<uint8_t>(tab));
+    return;
+  }
+#endif
   if (TouchHeaderBackButton::wasTapped(mappedInput, header) ||
       mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     ActivityResult result;
@@ -150,17 +204,30 @@ void EpubReaderChapterSelectionActivity::chapterScreen(UiApp::ScreenType& screen
 void EpubReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  setUiContentMargin(screen, renderer,
-                     fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput, safe.y)),
-                                 static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
-                                 static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height),
-                                 static_cast<int16_t>(safe.x)});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  const bool picco = UITheme::isPicco();
+#if CROSSINK_APP_PICCO_UI
+  if (picco) {
+    screen.setContentMarginFromScreen(PiccoReaderLists::listInsets(renderer, headerRect(), true));
+  } else
+#endif
+  {
+    setUiContentMargin(
+        screen, renderer,
+        fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput, safe.y)),
+                    static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
+                    static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height),
+                    static_cast<int16_t>(safe.x)});
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  }
 
   const int totalItems = getTotalItems();
   FilenameUiFontScope fonts(uiTarget, renderer);
   fui::ListProps props;
   props.labelText = screen.theme().bodyText;
+#if CROSSINK_APP_PICCO_UI
+  PiccoReaderLists::BookFontScope bookFont(uiTarget, picco);
+  if (picco) props.labelText.font = PiccoReaderLists::BookFontScope::kSlot;
+#endif
   const auto rows = configureUiList(props, screen.theme(), screen.body());
   visibleRows = rows > 0 ? rows : 1;
   topIndex = initialViewportPending ? followListSelection(selectorIndex, 0, visibleRows, totalItems)
@@ -177,6 +244,21 @@ void EpubReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& s
     itemWindow[i] = fui::ListItem{};
     itemWindow[i].label = labelWindow[i].c_str();
     itemWindow[i].actionValue = static_cast<int16_t>(topIndex + static_cast<int>(i));
+    if (picco) {
+      // Board: where the chapter starts (the firmware has no book page numbers); the
+      // chapter being read says so.
+      const bool current = topIndex + static_cast<int>(i) == currentTocIndex;
+      itemWindow[i].bold = current;
+      if (item.spineIndex >= 0) {
+        const int start = static_cast<int>(epub->calculateProgress(item.spineIndex, 0.0f) * 100.0f + 0.5f);
+        if (current) {
+          snprintf(valueWindow[i].data(), valueWindow[i].size(), "%s · %d%%", tr(STR_HOME_READING), start);
+        } else {
+          snprintf(valueWindow[i].data(), valueWindow[i].size(), "%d%%", start);
+        }
+        itemWindow[i].value = valueWindow[i].data();
+      }
+    }
   }
 
   props.items = itemWindow.data();
@@ -186,6 +268,7 @@ void EpubReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& s
   props.inputMask = fui::InputTouch;
   props.topIndex = 0;
   screen.list(props);
+  if (picco) return;
   fui::drawListScrollIndicator(screen.target(), screen.body(), static_cast<size_t>(totalItems), visibleRows, topIndex,
                                screen.theme().listScrollWidth, screen.theme().listScrollSide,
                                screen.theme().listScrollInset);
@@ -193,6 +276,19 @@ void EpubReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& s
 
 void EpubReaderChapterSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    const Rect header = headerRect();
+    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_PICCO_CONTENTS), true);
+    PiccoReaderLists::drawContentsTabs(renderer, header, PiccoReaderLists::ContentsTab::Chapters);
+    uiReady = false;
+    renderUiApp(app, uiTarget);
+    uiReady = true;
+    PiccoPageIndicator::drawForList(renderer, topIndex, visibleRows, getTotalItems());
+    renderer.displayBuffer();
+    return;
+  }
+#endif
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);

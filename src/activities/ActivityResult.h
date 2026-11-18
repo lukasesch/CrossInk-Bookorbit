@@ -146,11 +146,18 @@ struct ClippingJumpResult {
   bool settingsChanged = false;
 };
 
-using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
-                                   IntervalResult, OptionSelectionResult, PageResult, NetworkModeResult, FootnoteResult,
-                                   BookmarkResult, FileBrowserActionResult, FilePathResult, WordResult,
-                                   ReadingStatsResult, ProgressSyncResult, ClippingResult, TtfRenderOptionsResult,
-                                   DictionaryClippingRequest, ClippingJumpResult, FrontlightPanelResult>;
+// Picco Contents: a tab of the chapter / bookmark / clipping screen asks its host to show
+// another tab (PiccoReaderLists::ContentsTab).
+struct ContentsTabResult {
+  uint8_t tab = 0;
+};
+
+using ResultVariant =
+    std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, IntervalResult,
+                 OptionSelectionResult, PageResult, NetworkModeResult, FootnoteResult, BookmarkResult,
+                 FileBrowserActionResult, FilePathResult, WordResult, ReadingStatsResult, ProgressSyncResult,
+                 ClippingResult, TtfRenderOptionsResult, DictionaryClippingRequest, ClippingJumpResult,
+                 FrontlightPanelResult, ContentsTabResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

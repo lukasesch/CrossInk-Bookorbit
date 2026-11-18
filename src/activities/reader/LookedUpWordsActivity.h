@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../Activity.h"
+#include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 #include "util/DictionaryLookupController.h"
 #include "util/LookupHistory.h"
@@ -50,4 +51,8 @@ class LookedUpWordsActivity final : public Activity {
 
   void showDeleteConfirmation(bool ignoreInitialConfirmRelease);
   static const char* glyphFor(LookupHistory::Status s);
+  // Picco (T_LookupHistory): the header's Clear action and the row subtitle.
+  void showClearConfirmation();
+  static const char* statusText(LookupHistory::Status s);
+  Rect piccoClearRect{};
 };

@@ -566,6 +566,7 @@ class EpubReaderActivity final : public Activity {
   bool executeShortPowerButtonAction();
   bool executeLongPowerButtonAction();
   void handleClippingJump(const ClippingJumpResult& clipping);
+  void applyBookmarkJump(const BookmarkResult& bookmark);
   bool handleTouchDictionaryLookup();
   void openWordSelect(bool framebufferContainsPage, int initialTouchX = -1, int initialTouchY = -1,
                       bool autoLookupInitialWord = false);

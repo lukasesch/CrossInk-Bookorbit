@@ -19,6 +19,9 @@ class EpubReaderClippingListActivity final : public Activity {
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;
+  // Picco Contents: draw the Chapters / Bookmarks / Clippings tabs; a tab tap returns
+  // ContentsTabResult to the chapter screen hosting this one.
+  void showContentsTabs() { contentsTabs = true; }
 
  private:
   std::string detailText;
@@ -31,6 +34,7 @@ class EpubReaderClippingListActivity final : public Activity {
   bool longPressConfirmHandled = false;
   bool detailMode = false;
   bool initialListRender = true;
+  bool contentsTabs = false;
   using UiApp = freeink::ui::FreeInkApp<20, 4>;
   // Caps the rendered row window: the label buffers below are fixed size, so the
   // visible-row count from the theme geometry must never exceed them.

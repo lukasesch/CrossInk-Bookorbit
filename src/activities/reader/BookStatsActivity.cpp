@@ -614,6 +614,14 @@ void BookStatsActivity::render(RenderLock&&) {
     return;
   }
 
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco() && page == Page::PerBook) {
+    renderPiccoPerBookStatsPage(renderer, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,
+                                estimatedTimeLeftSeconds, hasEditableBook());
+    renderer.displayBuffer();
+    return;
+  }
+#endif
   switch (page) {
     case Page::PerBook:
       renderPerBookStatsPage(renderer, &mappedInput, bookTitle, stats, progressPercent, hasEstimatedTimeLeft,

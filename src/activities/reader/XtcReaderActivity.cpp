@@ -306,6 +306,12 @@ void XtcReaderActivity::loop() {
     case EndOfBookOptions::Action::GoHome:
       onGoHome();
       return;
+    case EndOfBookOptions::Action::OpenStats:
+      openReadingStats();
+      return;
+    case EndOfBookOptions::Action::OpenLibrary:
+      activityManager.goToLibrary();
+      return;
     case EndOfBookOptions::Action::LastPage:
     case EndOfBookOptions::Action::Redraw:
       if (endOfBookNeedsUpdate) {
@@ -1325,6 +1331,7 @@ void XtcReaderActivity::render(RenderLock&&) {
       endOfBookOptions->loadOnce(xtc->getPath());
       endOfBookMenuActive.store(endOfBookOptions->menuActive(), std::memory_order_relaxed);
       mappedInput.setMenuMode(endOfBookOptions->menuActive());
+      endOfBookOptions->setFinishedBook(xtc->getTitle(), xtc->getAuthor(), stats);
       endOfBookOptions->render(renderer, mappedInput);
     }
     openingFeedback.finish();

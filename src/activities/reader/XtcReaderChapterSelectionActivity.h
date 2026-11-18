@@ -28,6 +28,8 @@ class XtcReaderChapterSelectionActivity final : public Activity {
   static constexpr size_t CHAPTER_WINDOW_SIZE = 20;
   std::array<xtc::ChapterInfo, CHAPTER_WINDOW_SIZE> chapterWindow{};
   std::array<freeink::ui::ListItem, CHAPTER_WINDOW_SIZE> itemWindow{};
+  // Picco: each visible chapter's first page ("p. 12").
+  std::array<std::array<char, 16>, CHAPTER_WINDOW_SIZE> valueWindow{};
 
   static void chapterScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);

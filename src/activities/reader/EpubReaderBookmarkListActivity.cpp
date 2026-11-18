@@ -13,6 +13,10 @@
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
+#if CROSSINK_APP_PICCO_UI
+#include "PiccoReaderLists.h"
+#include "components/picco/PiccoPageIndicator.h"
+#endif
 
 namespace fui = freeink::ui;
 namespace {
@@ -108,9 +112,18 @@ void EpubReaderBookmarkListActivity::loop() {
     requestUpdate();
     return;
   }
-  const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
+#if CROSSINK_APP_PICCO_UI
+  PiccoReaderLists::ContentsTab tab;
+  if (contentsTabs && UITheme::isPicco() && PiccoReaderLists::contentsTabTapped(mappedInput, renderer, header, tab)) {
+    if (tab != PiccoReaderLists::ContentsTab::Bookmarks) {
+      setResult(ContentsTabResult{static_cast<uint8_t>(tab)});
+      finish();
+    }
+    return;
+  }
+#endif
   if (TouchHeaderBackButton::wasTapped(mappedInput, header) ||
       mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     ActivityResult result;
@@ -197,12 +210,21 @@ void EpubReaderBookmarkListActivity::listScreen(UiApp::ScreenType& screen, void*
 void EpubReaderBookmarkListActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  setUiContentMargin(screen, renderer,
-                     fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput, safe.y)),
-                                 static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
-                                 static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height),
-                                 static_cast<int16_t>(safe.x)});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    screen.setContentMarginFromScreen(PiccoReaderLists::listInsets(
+        renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput, safe), contentsTabs));
+  } else
+#endif
+  {
+    setUiContentMargin(
+        screen, renderer,
+        fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput, safe.y)),
+                    static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
+                    static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height),
+                    static_cast<int16_t>(safe.x)});
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  }
   if (bookmarks.empty()) {
     screen.centeredText(tr(STR_NO_BOOKMARKS), screen.theme().bodyText);
     return;
@@ -228,9 +250,22 @@ void EpubReaderBookmarkListActivity::buildListScreen(UiApp::ScreenType& screen) 
 
 void EpubReaderBookmarkListActivity::render(RenderLock&&) {
   renderer.clearScreen();
-  const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    TouchHeaderBackButton::draw(renderer, uiTarget, header, contentsTabs ? tr(STR_PICCO_CONTENTS) : tr(STR_BOOKMARKS),
+                                true);
+    if (contentsTabs) PiccoReaderLists::drawContentsTabs(renderer, header, PiccoReaderLists::ContentsTab::Bookmarks);
+    uiReady = false;
+    renderUiApp(app, uiTarget);
+    uiReady = true;
+    if (confirmPopup.processRender(renderer, mappedInput)) return;
+    PiccoPageIndicator::drawForList(renderer, topIndex, visibleRows, static_cast<int>(bookmarks.size()));
+    renderer.displayBuffer();
+    return;
+  }
+#endif
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_BOOKMARKS), true);
   } else {

@@ -31,6 +31,9 @@ class LookupHistory {
   // Remove one of the visible entries by distance from newest (0 = newest).
   static bool removeRecentAt(const std::string& cachePath, int indexFromNewest);
 
+  // Delete the whole history file; true when it is gone (also when it never existed).
+  static bool clear(const std::string& cachePath);
+
  private:
   static std::string filePath(const std::string& cachePath);
   static std::vector<Entry> readRecent(const std::string& path);

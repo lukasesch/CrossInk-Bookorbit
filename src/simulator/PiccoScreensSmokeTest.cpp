@@ -1,6 +1,5 @@
 #ifdef SIMULATOR
 #include "PiccoScreensSmokeTest.h"
-#include "PiccoScreens4A.h"
 
 #include <HalDisplay.h>
 #include <I18n.h>
@@ -18,7 +17,9 @@
 #include "BookOrbitCredentialStore.h"
 #include "CrossPointSettings.h"
 #include "PiccoScreens3B.h"
+#include "PiccoScreens4A.h"
 #include "PiccoScreens4B.h"
+#include "PiccoScreens4R1.h"
 #include "PiccoScreens4R2.h"
 #include "activities/ActivityManager.h"
 #include "activities/boot_sleep/SleepActivity.h"
@@ -368,6 +369,9 @@ struct PiccoScreensSmokeTest {
     addPiccoScreens4R2(
         steps, [this](const std::string& name) { renderAndCapture(name); },
         [this](const std::string& name) { capture(name); }, bookPath);
+    addPiccoScreens4R1(
+        steps, bookPath, [this](const std::string& name) { capture(name); },
+        [this](const std::string& name) { renderAndCapture(name); });
 
     // Without an account the catalog shows its setup hint and makes no request.
     steps.push_back([] {

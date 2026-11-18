@@ -22,6 +22,9 @@ class EpubReaderBookmarkListActivity final : public Activity {
   void render(RenderLock&&) override;
   bool isReaderActivity() const override { return true; }
   bool allowPowerAsConfirmInReaderMode() const override { return true; }
+  // Picco Contents: draw the Chapters / Bookmarks / Clippings tabs; a tab tap returns
+  // ContentsTabResult to the chapter screen hosting this one.
+  void showContentsTabs() { contentsTabs = true; }
 
  private:
 #ifdef SIMULATOR
@@ -42,6 +45,7 @@ class EpubReaderBookmarkListActivity final : public Activity {
   std::atomic<bool> uiReady{false};
   int visibleRows = 1;
   int topIndex = 0;
+  bool contentsTabs = false;
 
   static void provideRow(void* user, uint16_t index, freeink::ui::ListItem& item);
   static void listScreen(UiApp::ScreenType& screen, void* user);

@@ -8,6 +8,9 @@
 #include <string>
 #include <vector>
 
+#include "BookReadingStats.h"
+#include "components/themes/BaseTheme.h"
+
 class GfxRenderer;
 class MappedInputManager;
 
@@ -17,7 +20,8 @@ class MappedInputManager;
 // plain-title look and behavior.
 class EndOfBookOptions {
  public:
-  enum class Action { None, Redraw, OpenBook, GoHome, LastPage };
+  // OpenStats / OpenLibrary: the Picco end screen's button pair (T_EndOfBook).
+  enum class Action { None, Redraw, OpenBook, GoHome, LastPage, OpenStats, OpenLibrary };
 
   static constexpr size_t MAX_SUGGESTIONS = 3;
 
@@ -27,6 +31,10 @@ class EndOfBookOptions {
   // serialized by RenderLock. The loaded flag is the release/acquire publication point
   // that lets the other task read the finished list safely.
   void loadOnce(const std::string& currentBookPath);
+
+  // The finished book for the Picco end screen (title block and stat strip). Call while
+  // serialized by RenderLock, before render().
+  void setFinishedBook(const std::string& title, const std::string& author, const BookReadingStats& stats);
 
   // True once the original folder scan has completed, including when it found no books.
   bool loaded() const;
@@ -75,4 +83,17 @@ class EndOfBookOptions {
   std::atomic<bool> uiReady{false};
 
   std::string fullPath(size_t index) const;
+
+  // Picco end screen (T_EndOfBook): it owns input even without suggestions (Home in the
+  // header, Book stats / Library buttons). Targets are written by render, read by input.
+  std::string bookTitle;
+  std::string bookAuthor;
+  char stripValues[3][24] = {};
+  bool bookFinished = false;
+  bool piccoFocus = false;
+  std::array<Rect, MAX_SUGGESTIONS> piccoRows;
+  std::array<Rect, 2> piccoButtons;
+  uint8_t piccoRowCount = 0;
+  Action handlePiccoInput(const MappedInputManager& input, std::string* openPath);
+  void renderPicco(GfxRenderer& renderer);
 };

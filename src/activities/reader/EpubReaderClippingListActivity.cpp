@@ -17,6 +17,10 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
+#if CROSSINK_APP_PICCO_UI
+#include "PiccoReaderLists.h"
+#include "components/picco/PiccoPageIndicator.h"
+#endif
 
 namespace fui = freeink::ui;
 
@@ -320,6 +324,17 @@ void EpubReaderClippingListActivity::loop() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect header = clippingHeaderRect(renderer, safe, mappedInput);
+#if CROSSINK_APP_PICCO_UI
+  PiccoReaderLists::ContentsTab tab;
+  if (contentsTabs && !detailMode && UITheme::isPicco() &&
+      PiccoReaderLists::contentsTabTapped(mappedInput, renderer, header, tab)) {
+    if (tab != PiccoReaderLists::ContentsTab::Clippings) {
+      setResult(ContentsTabResult{static_cast<uint8_t>(tab)});
+      finish();
+    }
+    return;
+  }
+#endif
   if (TouchHeaderBackButton::wasTapped(mappedInput, header)) {
     if (detailMode) {
       closeDetail();
@@ -496,12 +511,21 @@ void EpubReaderClippingListActivity::listScreen(UiApp::ScreenType& screen, void*
 void EpubReaderClippingListActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  setUiContentMargin(screen, renderer,
-                     fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput, safe.y)),
-                                 static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
-                                 static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height),
-                                 static_cast<int16_t>(safe.x)});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    screen.setContentMarginFromScreen(
+        PiccoReaderLists::listInsets(renderer, clippingHeaderRect(renderer, safe, mappedInput), contentsTabs));
+  } else
+#endif
+  {
+    setUiContentMargin(
+        screen, renderer,
+        fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput, safe.y)),
+                    static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
+                    static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height),
+                    static_cast<int16_t>(safe.x)});
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  }
   const size_t count = CLIPPINGS.clippingCount();
   if (count == 0) {
     screen.centeredText(tr(STR_NO_CLIPPINGS), screen.theme().bodyText);
@@ -641,9 +665,21 @@ void EpubReaderClippingListActivity::render(RenderLock&&) {
     return;
   }
 
-  const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect header = clippingHeaderRect(renderer, safe, mappedInput);
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    TouchHeaderBackButton::draw(renderer, uiTarget, header, contentsTabs ? tr(STR_PICCO_CONTENTS) : tr(STR_CLIPPINGS),
+                                true);
+    if (contentsTabs) PiccoReaderLists::drawContentsTabs(renderer, header, PiccoReaderLists::ContentsTab::Clippings);
+    uiReady = false;
+    renderUiApp(app, uiTarget);
+    uiReady = true;
+    PiccoPageIndicator::drawForList(renderer, topIndex, visibleRows, static_cast<int>(CLIPPINGS.clippingCount()));
+    renderer.displayBuffer();
+    return;
+  }
+#endif
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_CLIPPINGS), true);
   } else {

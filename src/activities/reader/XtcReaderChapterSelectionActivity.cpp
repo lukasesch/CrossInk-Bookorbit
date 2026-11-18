@@ -4,6 +4,7 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <cstdio>
 
 #include "FilenameFontSystem.h"
 #include "MappedInputManager.h"
@@ -12,6 +13,10 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "util/InputReleaseGuard.h"
+#if CROSSINK_APP_PICCO_UI
+#include "PiccoReaderLists.h"
+#include "components/picco/PiccoPageIndicator.h"
+#endif
 
 namespace fui = freeink::ui;
 
@@ -147,12 +152,22 @@ void XtcReaderChapterSelectionActivity::chapterScreen(UiApp::ScreenType& screen,
 void XtcReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  setUiContentMargin(screen, renderer,
-                     fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput, safe.y)),
-                                 static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
-                                 static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height),
-                                 static_cast<int16_t>(safe.x)});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  const bool picco = UITheme::isPicco();
+#if CROSSINK_APP_PICCO_UI
+  if (picco) {
+    screen.setContentMarginFromScreen(
+        PiccoReaderLists::listInsets(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput, safe), false));
+  } else
+#endif
+  {
+    setUiContentMargin(
+        screen, renderer,
+        fui::Insets{static_cast<int16_t>(TouchHeaderBackButton::contentTop(renderer, mappedInput, safe.y)),
+                    static_cast<int16_t>(renderer.getScreenWidth() - safe.x - safe.width),
+                    static_cast<int16_t>(renderer.getScreenHeight() - safe.y - safe.height),
+                    static_cast<int16_t>(safe.x)});
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  }
   const size_t chapterCount = xtc->getChapterCount();
   if (chapterCount == 0) {
     screen.centeredText(tr(STR_NO_CHAPTERS), screen.theme().bodyText);
@@ -161,6 +176,10 @@ void XtcReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& sc
   FilenameUiFontScope fonts(uiTarget, renderer);
   fui::ListProps props;
   props.labelText = screen.theme().bodyText;
+#if CROSSINK_APP_PICCO_UI
+  PiccoReaderLists::BookFontScope bookFont(uiTarget, picco);
+  if (picco) props.labelText.font = PiccoReaderLists::BookFontScope::kSlot;
+#endif
   const auto rows = configureUiList(props, screen.theme(), screen.body());
   visibleRows = rows > 0 ? rows : 1;
   const int totalItems = static_cast<int>(chapterCount);
@@ -174,6 +193,13 @@ void XtcReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& sc
     itemWindow[i] = fui::ListItem{};
     itemWindow[i].label = chapterWindow[i].name[0] == '\0' ? tr(STR_UNNAMED) : chapterWindow[i].name;
     itemWindow[i].actionValue = static_cast<int16_t>(topIndex + static_cast<int>(i));
+    if (picco) {
+      itemWindow[i].bold = static_cast<uint32_t>(chapterWindow[i].startPage) <= currentPage &&
+                           currentPage <= static_cast<uint32_t>(chapterWindow[i].endPage);
+      snprintf(valueWindow[i].data(), valueWindow[i].size(), tr(STR_PICCO_PAGE_SHORT_FORMAT),
+               static_cast<unsigned>(chapterWindow[i].startPage) + 1);
+      itemWindow[i].value = valueWindow[i].data();
+    }
   }
   props.items = itemWindow.data();
   props.count = static_cast<uint16_t>(loaded);
@@ -182,6 +208,7 @@ void XtcReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& sc
   props.inputMask = fui::InputTouch;
   props.topIndex = 0;
   screen.list(props);
+  if (picco) return;
   fui::drawListScrollIndicator(screen.target(), screen.body(), chapterCount, visibleRows, topIndex,
                                screen.theme().listScrollWidth, screen.theme().listScrollSide,
                                screen.theme().listScrollInset);
@@ -189,9 +216,19 @@ void XtcReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& sc
 
 void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
-  const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   const Rect header = TouchHeaderBackButton::headerRect(renderer, mappedInput, safe);
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) {
+    TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_PICCO_CONTENTS), true);
+    uiReady = false;
+    renderUiApp(app, uiTarget);
+    uiReady = true;
+    PiccoPageIndicator::drawForList(renderer, topIndex, visibleRows, static_cast<int>(xtc->getChapterCount()));
+    renderer.displayBuffer();
+    return;
+  }
+#endif
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, uiTarget, header, tr(STR_SELECT_CHAPTER), true);
   } else {

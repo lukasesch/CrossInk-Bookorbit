@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdio>
 
 #include "MappedInputManager.h"
@@ -18,6 +19,10 @@
 #include "components/icons/listIcons.h"
 #include "components/icons/syncIcons.h"
 #include "fontIds.h"
+#if CROSSINK_APP_PICCO_UI
+#include "PiccoBookStatsLayout.h"
+#include "components/picco/PiccoSystemLayout.h"
+#endif
 
 namespace {
 constexpr int kStatsButtonHintTopGap = 10;
@@ -891,3 +896,223 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }
+
+#if CROSSINK_APP_PICCO_UI
+namespace {
+namespace PB = PiccoBookStatsLayout;
+using PiccoLayout::Box;
+
+enum class Align : uint8_t { Left, Center, Right };
+
+void drawPiccoText(const GfxRenderer& renderer, const int font, const Box& box, const char* text,
+                   const EpdFontFamily::Style style = EpdFontFamily::REGULAR, const Align align = Align::Left) {
+  if (text == nullptr || text[0] == '\0' || box.width <= 0) return;
+  const std::string visible = renderer.truncatedText(font, text, box.width, style);
+  const int w = renderer.getTextWidth(font, visible.c_str(), style);
+  int x = box.x;
+  if (align == Align::Center) x += (box.width - w) / 2;
+  if (align == Align::Right) x = box.right() - w;
+  renderer.drawText(font, x, box.y + (box.height - renderer.getLineHeight(font)) / 2, visible.c_str(), true, style);
+}
+
+void drawPiccoSectionLabel(const GfxRenderer& renderer, const Box& box, const char* text) {
+  char caps[64];
+  size_t i = 0;
+  for (; text != nullptr && text[i] != '\0' && i + 1 < sizeof(caps); ++i) {
+    caps[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[i])));
+  }
+  caps[i] = '\0';
+  drawPiccoText(renderer, SMALL_FONT_ID, box, caps, EpdFontFamily::BOLD);
+}
+
+// Estimated (or recorded) finish date, as the classic per-book card computes it.
+bool piccoFinishDate(const BookReadingStats& stats, const float progressPercent, const bool hasEstimatedTimeLeft,
+                     const uint32_t estimatedTimeLeftSeconds, ReadingStatsDate& out) {
+  out = {};
+  if (stats.isCompleted) {
+    out = stats.finishedDate;
+    return out.isValid();
+  }
+  uint32_t seconds = 0;
+  if (hasEstimatedTimeLeft) {
+    seconds = estimatedTimeLeftSeconds;
+  } else if (!cachedEstimatedTimeLeft(stats, seconds) && !stats.fallbackTimeLeft(progressPercent, seconds)) {
+    return false;
+  }
+  ReadingStatsDateTime today;
+  if (!getCurrentLocalReadingStatsDateTime(today)) return false;
+  if (estimateFinishDateFromDailyPace(stats, today, seconds, out)) return true;
+  ReadingStatsDateTime finish = today;
+  addSecondsToReadingStatsDateTime(finish, seconds);
+  out = finish.date;
+  return out.isValid();
+}
+
+void drawPiccoProgress(const GfxRenderer& renderer, const Box& area, const BookReadingStats& stats,
+                       const float progressPercent, const bool hasEstimatedTimeLeft,
+                       const uint32_t estimatedTimeLeftSeconds, const bool showEditTarget) {
+  const int bodyH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int smallH = renderer.getLineHeight(SMALL_FONT_ID);
+  char buf[48];
+  const int percent = progressPercent >= 0.0f ? static_cast<int>(progressPercent + 0.5f) : -1;
+  if (percent >= 0) {
+    snprintf(buf, sizeof(buf), "%d%%", percent);
+  } else {
+    snprintf(buf, sizeof(buf), "-");
+  }
+  const Box figures{area.x, area.y, area.width, bodyH};
+  drawPiccoText(renderer, UI_10_FONT_ID, figures, buf, EpdFontFamily::BOLD);
+
+  uint32_t left = estimatedTimeLeftSeconds;
+  bool hasLeft = hasEstimatedTimeLeft;
+  if (!hasLeft) hasLeft = cachedEstimatedTimeLeft(stats, left) || stats.fallbackTimeLeft(progressPercent, left);
+  if (hasLeft && !stats.isCompleted) {
+    char duration[24];
+    formatCompactReadingDuration(left, duration, sizeof(duration));
+    snprintf(buf, sizeof(buf), tr(STR_HOME_LEFT_FORMAT), duration);
+    drawPiccoText(renderer, SMALL_FONT_ID, figures, buf, EpdFontFamily::REGULAR, Align::Right);
+  }
+
+  const int barY = figures.bottom() + PiccoTokens::kControlClearance;
+  renderer.fillRect(area.x, barY + PiccoTokens::kProgressFill / 2, area.width, PiccoTokens::kProgressTrack, true);
+  const int fill = PB::progressFill(area.width, percent);
+  if (fill > 0) {
+    renderer.fillRoundedRect(area.x, barY, fill, PiccoTokens::kProgressFill, PiccoTokens::kProgressFillRadius,
+                             Color::Black);
+  }
+
+  const Box dates{area.x, barY + PiccoTokens::kProgressFill + PiccoTokens::kControlClearance, area.width, smallH};
+  char date[24];
+  formatReadingStatsShortDate(stats.startDate, date, sizeof(date));
+  snprintf(buf, sizeof(buf), "%s %s", tr(STR_STATS_STARTED), date);
+  drawPiccoText(renderer, SMALL_FONT_ID, Box{dates.x, dates.y, dates.width / 2, dates.height}, buf);
+  if (showEditTarget) {
+    TouchRegistry::getInstance().add(
+        Rect(dates.x, dates.y - PiccoTokens::kGroupGap, dates.width, dates.height + 2 * PiccoTokens::kGroupGap),
+        BookStatsTouchTarget::StartedDaysStat, TouchRegistry::Item);
+  }
+  ReadingStatsDate finish;
+  if (piccoFinishDate(stats, progressPercent, hasEstimatedTimeLeft, estimatedTimeLeftSeconds, finish)) {
+    formatReadingStatsShortDate(finish, date, sizeof(date));
+    snprintf(buf, sizeof(buf), "%s %s", stats.isCompleted ? tr(STR_STATS_FINISHED_DATE) : tr(STR_STATS_EST_FINISH_DATE),
+             date);
+    drawPiccoText(renderer, SMALL_FONT_ID, Box{dates.x + dates.width / 2, dates.y, dates.width / 2, dates.height}, buf,
+                  EpdFontFamily::REGULAR, Align::Right);
+  }
+}
+
+// This book's minutes by weekday (no per-book daily log exists); today's column is outlined.
+void drawPiccoWeekdays(const GfxRenderer& renderer, const Box& chart, const BookReadingStats& stats) {
+  uint32_t busiest = 0;
+  for (const uint32_t s : stats.dayOfWeekSeconds) busiest = std::max(busiest, s / 60);
+  ReadingStatsDateTime today;
+  const int todayIndex = getCurrentLocalReadingStatsDateTime(today) ? readingStatsDayOfWeekIndex(today.date) : -1;
+  const int lineH = PB::kLabelLine;
+  const int base = chart.bottom() - lineH - PB::kChartTextGap;
+  for (int i = 0; i < PB::kChartColumns; ++i) {
+    const Box col = PB::chartColumn(chart, i);
+    const uint32_t minutes = stats.dayOfWeekSeconds[static_cast<size_t>(i)] / 60;
+    const bool isToday = i == todayIndex;
+    const int h = PiccoStatsLayout::barHeight(minutes, busiest, PB::kChartBarMax);
+    if (h > 0) {
+      const int top = base - h;
+      if (!isToday && h > 2) renderer.fillRectDither(col.x + 1, top + 1, col.width - 2, h - 1, Color::DarkGray);
+      renderer.drawRoundedRect(col.x, top, col.width, h, PiccoTokens::kHairline, std::min(3, h / 2), true, true, false,
+                               false, true);
+    } else {
+      renderer.fillRect(col.x, base - 1, col.width, PiccoTokens::kHairline, true);
+    }
+    char value[12];
+    snprintf(value, sizeof(value), "%lu", static_cast<unsigned long>(minutes));
+    drawPiccoText(renderer, SMALL_FONT_ID, Box{col.x, base - h - PB::kChartTextGap - lineH, col.width, lineH}, value,
+                  EpdFontFamily::REGULAR, Align::Center);
+    drawPiccoText(renderer, SMALL_FONT_ID, Box{col.x, base + PB::kChartTextGap, col.width, lineH},
+                  I18N.get(DAY_LABELS[static_cast<size_t>(i)]), isToday ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR,
+                  Align::Center);
+  }
+}
+
+void drawPiccoDayParts(const GfxRenderer& renderer, const Box& area, const BookReadingStats& stats) {
+  uint32_t total = 0;
+  for (const uint32_t s : stats.timeOfDaySeconds) total += s;
+  for (int i = 0; i < PB::kDayParts; ++i) {
+    const Box col = PB::dayPart(area, i);
+    drawPiccoText(renderer, SMALL_FONT_ID, Box{col.x, col.y, col.width, PB::kLabelLine},
+                  I18N.get(TIME_BUCKET_LABELS[static_cast<size_t>(i)]));
+    const int barY = col.y + PB::kLabelLine + PB::kDayPartTextGap;
+    renderer.fillRect(col.x, barY + PB::kDayPartBar / 2 - 1, col.width, PiccoTokens::kHairline, true);
+    const int pct = PiccoStatsLayout::sharePercent(stats.timeOfDaySeconds[static_cast<size_t>(i)], total);
+    const int w = pct > 0 ? std::max(2, col.width * pct / 100) : 0;
+    if (w > 0) {
+      renderer.fillRect(col.x, barY, w, PB::kDayPartBar, false);
+      if (w > 2) renderer.fillRectDither(col.x + 1, barY + 1, w - 2, PB::kDayPartBar - 2, Color::DarkGray);
+      renderer.drawRoundedRect(col.x, barY, w, PB::kDayPartBar, PiccoTokens::kHairline, std::min(3, w / 2), false, true,
+                               false, true, true);
+    }
+    char text[8];
+    snprintf(text, sizeof(text), "%d%%", pct);
+    drawPiccoText(renderer, SMALL_FONT_ID,
+                  Box{col.x, barY + PB::kDayPartBar + PB::kDayPartTextGap, col.width, PB::kLabelLine}, text);
+  }
+}
+}  // namespace
+
+void drawPiccoStatsStrip(const GfxRenderer& renderer, const PiccoLayout::Box& strip, const char* const* values,
+                         const char* const* labels) {
+  renderer.fillRect(strip.x, strip.y, strip.width, PiccoTokens::kHairline, true);
+  renderer.fillRect(strip.x, strip.bottom() - PiccoTokens::kHairline, strip.width, PiccoTokens::kHairline, true);
+  const int valueH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int labelH = renderer.getLineHeight(SMALL_FONT_ID);
+  for (int i = 0; i < PB::kStripColumns; ++i) {
+    if (i > 0) {
+      const Box cell = PB::stripCell(strip, i);
+      renderer.fillRect(cell.x, strip.y, PiccoTokens::kHairline, strip.height, true);
+    }
+    const Box text = PB::stripText(strip, i);
+    const int top = text.y + (text.height - valueH - labelH) / 2;
+    drawPiccoText(renderer, UI_10_FONT_ID, Box{text.x, top, text.width, valueH}, values[i], EpdFontFamily::BOLD);
+    drawPiccoText(renderer, SMALL_FONT_ID, Box{text.x, top + valueH, text.width, labelH}, labels[i]);
+  }
+}
+
+void renderPiccoPerBookStatsPage(GfxRenderer& renderer, const std::string& bookTitle, const BookReadingStats& stats,
+                                 const float progressPercent, const bool hasEstimatedTimeLeft,
+                                 const uint32_t estimatedTimeLeftSeconds, const bool showEditTarget) {
+  renderer.clearScreen();
+  const Rect header = TouchHeaderBackButton::compactHeaderRect(renderer);
+  TouchHeaderBackButton::draw(renderer, header, tr(STR_PICCO_BOOK_STATS), true);
+  const Box screen{0, 0, renderer.getScreenWidth(), renderer.getScreenHeight()};
+  const PB::Layout l = PB::layout(screen, header.y + header.height);
+
+  const int titleFont = renderer.filenameFontId(LITERATA_15_FONT_ID);
+  drawPiccoText(renderer, titleFont, Box{l.title.x, l.title.y, l.title.width, renderer.getLineHeight(titleFont)},
+                bookTitle.c_str());
+
+  char time[24];
+  char sessions[12];
+  char pace[12];
+  BookReadingStats::formatDuration(stats.totalReadingSeconds, time, sizeof(time));
+  snprintf(sessions, sizeof(sessions), "%u", static_cast<unsigned>(stats.sessionCount));
+  snprintf(pace, sizeof(pace), "%.1f", pagesPerMinute(stats.totalPagesTurned, stats.totalReadingSeconds));
+  const char* values[PB::kStripColumns] = {time, sessions, pace};
+  const char* labels[PB::kStripColumns] = {tr(STR_STATS_TIME_LBL), tr(STR_STATS_SESSIONS_LBL),
+                                           tr(STR_STATS_PAGES_PER_MIN)};
+  drawPiccoStatsStrip(renderer, l.strip, values, labels);
+
+  drawPiccoProgress(renderer, l.progress, stats, progressPercent, hasEstimatedTimeLeft, estimatedTimeLeftSeconds,
+                    showEditTarget);
+
+  drawPiccoSectionLabel(renderer, l.chartLabel, tr(STR_STATS_DAY_OF_WEEK));
+  drawPiccoWeekdays(renderer, l.chart, stats);
+
+  char average[24];
+  BookReadingStats::formatDuration(stats.sessionCount > 0 ? stats.totalReadingSeconds / stats.sessionCount : 0, average,
+                                   sizeof(average));
+  char note[64];
+  snprintf(note, sizeof(note), tr(STR_PICCO_AVG_SESSION_FORMAT), average);
+  drawPiccoText(renderer, SMALL_FONT_ID, l.note, note);
+
+  drawPiccoSectionLabel(renderer, l.dayLabel, tr(STR_STATS_TIME_OF_DAY));
+  drawPiccoDayParts(renderer, l.dayParts, stats);
+}
+#endif
