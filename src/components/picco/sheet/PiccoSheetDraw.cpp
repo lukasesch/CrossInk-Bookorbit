@@ -9,6 +9,7 @@
 
 #include "components/UiAppHelpers.h"
 #include "components/icons/piccoIcons.h"
+#include "components/picco/PiccoListUi.h"
 #include "fontIds.h"
 
 namespace PiccoSheetDraw {
@@ -84,14 +85,8 @@ void slider(const GfxRenderer& renderer, const Box& track, const int permille) {
 
 void tabBar(const GfxRenderer& renderer, const PiccoSheet::TabBar& bar, const char* first, const char* second,
             const int selected) {
-  renderer.drawRoundedRect(bar.bar.x, bar.bar.y, bar.bar.width, bar.bar.height, kHairline, kTabRadius, true);
   const char* labels[2] = {first, second};
-  for (int i = 0; i < 2; ++i) {
-    const Box& c = bar.cells[static_cast<size_t>(i)];
-    if (i == selected) renderer.drawRoundedRect(c.x, c.y, c.width, c.height, kSelectionStroke, kTabCellRadius, true);
-    text(renderer, kSmallFont, Box{c.x + 8, c.y, c.width - 16, c.height}, labels[i],
-         i == selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR, Align::Center);
-  }
+  PiccoListUi::drawSegmented(renderer, PiccoListUi::toRect(bar.bar), labels, 2, selected, kSmallFont);
 }
 
 void frame(const GfxRenderer& renderer, const Box& box, const bool selected) {
@@ -109,13 +104,7 @@ void stepper(const GfxRenderer& renderer, const PiccoSheet::Stepper& s, const ch
 
 void segmented(const GfxRenderer& renderer, const PiccoSheet::Segmented& control, const freeink::Icon* const* icons,
                const int selected) {
-  const Box& f = control.frame;
-  renderer.drawRoundedRect(f.x, f.y, f.width, f.height, kHairline, kTabRadius, true);
-  for (int i = 0; i < control.count; ++i) {
-    const Box& c = control.cells[static_cast<size_t>(i)];
-    if (i == selected) renderer.drawRoundedRect(c.x, c.y, c.width, c.height, kSelectionStroke, kTabCellRadius, true);
-    if (icons[i] != nullptr) icon(renderer, *icons[i], c);
-  }
+  PiccoListUi::drawSegmentedIcons(renderer, PiccoListUi::toRect(control.frame), icons, control.count, selected);
 }
 
 void cell(const GfxRenderer& renderer, const Box& box, const char* label, const char* value, const bool enabled) {

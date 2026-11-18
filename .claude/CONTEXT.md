@@ -12,6 +12,7 @@ Refer to https://freeink.org/llms.txt for guidance.
 
 - Picco-only i18n keys must start with `STR_PICCO_`: the language-pack size check skips English-valued keys with that prefix (`LanguageCache.cpp`, benchmark branch). `gen_i18n.py` rejects comment lines in YAMLs and scans C++ source for key names, so never spell a key prefix as a string literal.
 - Hand-drawn Picco screens take the header band from `UITheme::getHeaderRect(renderer, 80)`, never y 0: insets/calibration move it (the picco-simulator X4 Pro profile starts it ~9 px down).
+- Merge traps (full divergence list: `FORK.md`). Picco screens are `UITheme::isPicco()` branches inside upstream files (`HomeActivity`, readers, `ActivityManager`, `SettingsActivity`, `SettingsList.h`): keep the branch in every hunk, and build `picco-simulator` too, since a renamed upstream call breaks only the Picco envs. Upstream's `uiTheme = LYRA` initializer becomes `DEFAULT_UI_THEME` (Picco on Picco UI builds); the generic smoke pins Lyra in `settleFreshTheme()`. A new upstream shortcut field that can hold Open Quick Actions (`QuickActions::triggerForSetting`) needs a row in `QUICK_ACTIONS_BINDINGS` (the Picco test counts 15). `ThemeTabBarAppearance::Segmented` and `drawUiSegmentedTabBar()` are fork code on `PiccoSegmented.h` geometry. Picco icon headers regenerate with `generate_icons.py --extra-svgdir` (fork option).
 
 ## Simulator
 

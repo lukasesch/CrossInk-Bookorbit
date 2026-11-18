@@ -11,6 +11,7 @@
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/icons/listIcons.h"
+#include "components/picco/PiccoSegmented.h"
 
 // Shared glue for activities hosting a FreeInkApp: the font-bound render
 // target and the touch snapshot FreeInkApp routing consumes.
@@ -211,38 +212,29 @@ inline int followListSelection(const int selectedIndex, const int topIndex, cons
       static_cast<uint16_t>(visibleRows > 0 ? visibleRows : 1), static_cast<uint16_t>(count)));
 }
 
-// Segmented bar (Picco): 1 px frame r16, padding 4, equal cells r12; the selected cell is a
-// 2 px stroke and bold label, never a fill. One tabBar call per cell keeps per-tab hit rects.
+// Segmented bar (Picco), geometry from PiccoSegmented: the selected cell is a 2 px stroke and
+// bold label, never a fill. One tabBar call per cell keeps per-tab hit rects.
 template <size_t MaxInteractions>
 inline void drawUiSegmentedTabBar(freeink::ui::Screen<MaxInteractions>& screen, const freeink::ui::TabBarProps& props,
                                   const freeink::ui::Rect rect) {
   namespace fui = freeink::ui;
-  constexpr int16_t kFrame = 1;
-  constexpr int16_t kPad = 4;
-  constexpr uint8_t kOuterRadius = 16;
-  constexpr uint8_t kCellRadius = 12;
-  screen.target().stroke(rect, fui::Paint::solid(fui::Color::Black), kFrame, kOuterRadius);
+  screen.target().stroke(rect, fui::Paint::solid(fui::Color::Black), PiccoTokens::kHairline, PiccoTokens::kTabRadius);
 
   fui::StyleSet cells;
   cells.explicitlySet = true;
   cells.normal.foreground = fui::Paint::solid(fui::Color::Black);
   cells.selected = cells.normal;
   cells.selected.border = fui::Paint::solid(fui::Color::Black);
-  cells.selected.borderWidth = 2;
-  cells.selected.radius = kCellRadius;
+  cells.selected.borderWidth = PiccoTokens::kSelectionStroke;
+  cells.selected.radius = PiccoTokens::kTabCellRadius;
   cells.focused = cells.selected;
   cells.active = cells.selected;
   cells.disabled = cells.normal;
 
-  const int16_t inset = kFrame + kPad;
-  const int16_t innerX = static_cast<int16_t>(rect.x + inset);
-  const int16_t innerW = static_cast<int16_t>(rect.width - 2 * inset);
-  const int16_t innerH = static_cast<int16_t>(rect.height - 2 * inset);
-  if (innerW <= 0 || innerH <= 0) return;
-  const int16_t cellW = static_cast<int16_t>((innerW - kPad * (props.count - 1)) / props.count);
+  const PiccoLayout::Box frame{rect.x, rect.y, rect.width, rect.height};
   for (uint8_t i = 0; i < props.count; ++i) {
-    const int16_t cellX = static_cast<int16_t>(innerX + i * (cellW + kPad));
-    const int16_t width = static_cast<int16_t>(i == props.count - 1 ? innerX + innerW - cellX : cellW);
+    const PiccoLayout::Box cell = PiccoSegmented::cell(frame, props.count, i);
+    if (cell.empty()) return;
     fui::TabBarProps tab = props;
     tab.tabs = &props.tabs[i];
     tab.count = 1;
@@ -254,7 +246,10 @@ inline void drawUiSegmentedTabBar(freeink::ui::Screen<MaxInteractions>& screen, 
     tab.tabStyles = cells;
     tab.text.bold = props.tabs[i].selected;
     tab.text.align = fui::TextAlign::Center;
-    fui::tabBar(screen.frame(), fui::Rect{cellX, static_cast<int16_t>(rect.y + inset), width, innerH}, tab);
+    fui::tabBar(screen.frame(),
+                fui::Rect{static_cast<int16_t>(cell.x), static_cast<int16_t>(cell.y), static_cast<int16_t>(cell.width),
+                          static_cast<int16_t>(cell.height)},
+                tab);
   }
 }
 

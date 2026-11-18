@@ -1136,6 +1136,18 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc, bool importingCrossPoint
     pluginsEnabled = 0;
     needsResave = true;
   }
+  if (uiTheme == PICCO) {
+    for (const auto& binding : QUICK_ACTIONS_BINDINGS) {
+      const uint8_t mapped = withoutQuickActions(binding, this->*binding.field);
+      if (mapped == this->*binding.field) continue;
+      this->*binding.field = mapped;
+      needsResave = true;
+    }
+    if (quickActionsTrigger != 0) {
+      quickActionsTrigger = 0;
+      needsResave = true;
+    }
+  }
 #endif
 
   if (bookOrbitShortcutsCarried) LOG_INF("CPS", "Carried BookOrbit Sync shortcuts over to their new numbers");

@@ -29,19 +29,26 @@ def manifest_sources(path):
     return sources
 
 
-def prepare_stroked_svg_dir(svg_dir, manifest, stroke_width):
+def prepare_svg_dir(svg_dir, manifest, stroke_width, extra_dir=None):
+    """Collect the manifest's SVGs. Sources missing from the library come from
+    extra_dir unchanged (hand-drawn icons carry their own stroke width)."""
     temp_dir = tempfile.TemporaryDirectory(prefix="crossink-icons-")
     try:
         prepared_dir = Path(temp_dir.name)
-        value = f"{stroke_width:g}"
         for source_name in manifest_sources(manifest):
             source = svg_dir / f"{source_name}.svg"
+            if extra_dir is not None and not source.is_file():
+                extra = extra_dir / f"{source_name}.svg"
+                (prepared_dir / extra.name).write_text(extra.read_text())
+                continue
             contents = source.read_text()
-            contents, replacements = STROKE_WIDTH_ATTRIBUTE.subn(
-                rf'\g<1>{value}\g<2>', contents, count=1
-            )
-            if replacements != 1:
-                raise ValueError(f"SVG has no stroke-width attribute: {source}")
+            if stroke_width is not None:
+                value = f"{stroke_width:g}"
+                contents, replacements = STROKE_WIDTH_ATTRIBUTE.subn(
+                    rf'\g<1>{value}\g<2>', contents, count=1
+                )
+                if replacements != 1:
+                    raise ValueError(f"SVG has no stroke-width attribute: {source}")
             (prepared_dir / source.name).write_text(contents)
         return temp_dir, prepared_dir
     except Exception:
@@ -60,6 +67,10 @@ def main():
         type=float,
         help="Override SVG stroke width while rasterizing this manifest",
     )
+    parser.add_argument(
+        "--extra-svgdir",
+        help="Directory for manifest icons the library lacks (used as drawn, no stroke override)",
+    )
     args = parser.parse_args()
 
     svg_dir = SVG_DIRS[args.library]
@@ -70,11 +81,14 @@ def main():
 
     output = Path(args.out)
     temp_dir = None
-    if args.stroke_width is not None:
-        if args.stroke_width <= 0:
-            parser.error("--stroke-width must be greater than zero")
+    if args.stroke_width is not None and args.stroke_width <= 0:
+        parser.error("--stroke-width must be greater than zero")
+    extra_dir = Path(args.extra_svgdir) if args.extra_svgdir else None
+    if extra_dir is not None and not extra_dir.is_dir():
+        parser.error(f"Extra icon source is missing: {extra_dir}")
+    if args.stroke_width is not None or extra_dir is not None:
         try:
-            temp_dir, svg_dir = prepare_stroked_svg_dir(svg_dir, args.manifest, args.stroke_width)
+            temp_dir, svg_dir = prepare_svg_dir(svg_dir, args.manifest, args.stroke_width, extra_dir)
         except (OSError, ValueError) as error:
             parser.error(str(error))
 

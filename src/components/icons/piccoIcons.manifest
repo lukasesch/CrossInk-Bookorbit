@@ -1,7 +1,10 @@
 # Picco theme icons, kept out of upstream's manifests so their headers never conflict.
-# Sizes per the design tokens: row/sync 22, chevron 26, house 28, tile 32. Regenerate with:
-# python3 scripts/generate_icons.py --library lucide \
+# Sizes per the design tokens: row/sync 22, chevron 26, house 28, tile 32. Lucide where it has
+# the icon; the home tiles (picco-*) are traced from the T_Combined board, SVGs in piccoHomeSvg/.
+# Regenerate with (needs rsvg-convert and Pillow):
+# uv run --with pillow python3 scripts/generate_icons.py --library lucide \
 #   --manifest src/components/icons/piccoIcons.manifest \
+#   --extra-svgdir src/components/icons/piccoHomeSvg \
 #   --sizes 22,26,28,32 --stroke-width 1.75 \
 #   --out src/components/icons/piccoIcons.h
 # then clang-format -i the output.
@@ -15,7 +18,7 @@ picco_plus = plus
 picco_arrow_right = arrow-right
 picco_wifi_off = wifi-off
 picco_alert = circle-alert
-# Home tiles; drawn from the T_Combined board (not Lucide), SVGs kept beside the Lucide ones.
+# Home tiles (board-traced, Lucide has no match).
 picco_orbit = picco-orbit
 picco_books = picco-books
 picco_folder = picco-folder

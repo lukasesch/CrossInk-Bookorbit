@@ -3050,6 +3050,11 @@ class SimulatorSmokeTest {
     if (!enabled()) return;
 
     try {
+      static bool themeSettled = false;
+      if (!themeSettled) {
+        themeSettled = true;
+        settleFreshTheme();
+      }
       if (std::getenv("CROSSINK_SIMULATOR_SMOKE_TOUCH_AVAILABILITY")) {
         tickTouchAvailability();
         return;
@@ -3472,6 +3477,22 @@ class SimulatorSmokeTest {
   static bool landscapeReaderRequested() {
     const char* raw = std::getenv("CROSSINK_SIMULATOR_SMOKE_LANDSCAPE_READER");
     return raw != nullptr && raw[0] != '\0' && raw[0] != '0';
+  }
+
+  // A fresh settings file starts on the build's default theme (Picco on Picco UI builds).
+  // The flows were written against Lyra, so they keep running on it.
+  static void settleFreshTheme() {
+    if (SETTINGS.uiTheme != CrossPointSettings::DEFAULT_UI_THEME) {
+      fail("Fresh settings did not start on the default UI theme");
+    }
+    if (SETTINGS.uiTheme == CrossPointSettings::LYRA) return;
+    LOG_INF("SMOKE", "Fresh settings started on theme %d; the smoke runs on Lyra", SETTINGS.uiTheme);
+    {
+      RenderLock lock;
+      SETTINGS.uiTheme = CrossPointSettings::LYRA;
+      UITheme::getInstance().reload();
+    }
+    activityManager.goHome();  // boot opened Home on the default theme
   }
 
   static void applyRequestedTheme() {
@@ -5103,9 +5124,12 @@ class SimulatorSmokeTest {
       return settingKeyIs(setting, "powerChordAction");
     });
     if (chordSetting == allSettings.end()) fail("Power chord setting is missing");
-    if (std::find(chordSetting->enumRawValues.begin(), chordSetting->enumRawValues.end(),
-                  CrossPointSettings::CHORD_QUICK_ACTIONS) == chordSetting->enumRawValues.end()) {
-      fail("Quick Actions is missing from the Power + Up chord setting");
+    // The Picco UI hides Quick Actions and its picker values.
+    const bool offersQuickActions =
+        std::find(chordSetting->enumRawValues.begin(), chordSetting->enumRawValues.end(),
+                  CrossPointSettings::CHORD_QUICK_ACTIONS) != chordSetting->enumRawValues.end();
+    if (offersQuickActions == UITheme::isPicco()) {
+      fail("Quick Actions in the Power + Up chord setting does not match the UI theme");
     }
     // The counts are one past upstream's: this fork's BookOrbit Sync sits after its last action.
     if (CrossPointSettings::HOME_READER != 36 || CrossPointSettings::SELECT_CHAPTER != 38 ||

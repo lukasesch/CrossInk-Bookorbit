@@ -1,8 +1,9 @@
 # Picco system-screen icons (T_Wifi, T_Fonts, T_HyphenationPacks), traced from the boards'
-# inline SVGs (Lucide geometry, stroke 1.75) in piccoSystemSvg/. Regenerate with:
-# python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
+# inline SVGs in piccoSystemSvg/ (stroke 1.75). Lucide's wifi, lock and download differ from
+# the boards in geometry, so none comes from Lucide. Regenerate with:
+# uv run --with pillow python3 scripts/generate_icons.py --library lucide \
 #   --manifest src/components/icons/piccoSystemIcons.manifest \
-#   --svgdir src/components/icons/piccoSystemSvg --sizes 22,26 \
+#   --extra-svgdir src/components/icons/piccoSystemSvg --sizes 22,26 --stroke-width 1.75 \
 #   --out src/components/icons/piccoSystemIcons.h
 # then clang-format -i the output.
 picco_wifi_3 = picco-wifi-3

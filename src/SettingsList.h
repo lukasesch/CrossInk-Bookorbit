@@ -719,6 +719,13 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
       }
     }
   }
+  if (UITheme::isPicco()) {
+    for (auto& setting : v) {
+      for (const auto& binding : CrossPointSettings::QUICK_ACTIONS_BINDINGS) {
+        if (setting.valuePtr == binding.field) removeEnumRawValue(setting, binding.openQuickActions);
+      }
+    }
+  }
   if (!deviceHasFrontButtons()) {
     v.erase(
         std::remove_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_MENU_NAVIGATION; }),
@@ -984,7 +991,9 @@ inline std::vector<SettingInfo> buildControlsSettingsParentList(const std::vecto
     settings.push_back(SettingInfo::Submenu(StrId::STR_FRONT_BUTTONS, SettingAction::ControlsFrontButtons));
   }
   settings.push_back(SettingInfo::Submenu(StrId::STR_SIDE_BUTTONS, SettingAction::ControlsSideButtons));
-  settings.push_back(SettingInfo::Action(StrId::STR_QUICK_ACTIONS, SettingAction::QuickActions));
+  if (!UITheme::isPicco()) {
+    settings.push_back(SettingInfo::Action(StrId::STR_QUICK_ACTIONS, SettingAction::QuickActions));
+  }
   if (hasTapsGestures) {
     settings.push_back(SettingInfo::Submenu(StrId::STR_TAPS_AND_GESTURES, SettingAction::ControlsTapsGestures));
   }

@@ -1,11 +1,12 @@
-# Picco reader sheet icons, drawn from the T_ReaderSheet* boards (SVGs in assets/picco-sheet-icons).
-# Regenerate with the SDK generator (needs rsvg-convert and Pillow):
-# python3 freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
+# Picco reader sheet icons. Lucide where it has the icon (sun); the rest are traced from the
+# T_ReaderSheet* boards (SVGs in assets/picco-sheet-icons, stroke 1.75 baked in).
+# Regenerate with (needs rsvg-convert and Pillow):
+# uv run --with pillow python3 scripts/generate_icons.py --library lucide \
 #   --manifest src/components/icons/piccoSheetIcons.manifest \
-#   --svgdir assets/picco-sheet-icons --sizes 22,24,26,28 \
+#   --extra-svgdir assets/picco-sheet-icons --sizes 22,24,26,28 --stroke-width 1.75 \
 #   --out src/components/icons/piccoSheetIcons.h
 # then clang-format -i the output.
-picco_sheet_sun = sheet-sun
+picco_sheet_sun = sun
 picco_sheet_warmth = sheet-warmth
 picco_sheet_text = sheet-text
 picco_sheet_bookmark = sheet-bookmark

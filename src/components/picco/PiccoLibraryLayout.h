@@ -2,6 +2,7 @@
 
 #include "PiccoLayout.h"
 #include "PiccoPagedList.h"
+#include "PiccoSegmented.h"
 #include "PiccoTokens.h"
 
 // Pure geometry for the Library, Files and BookOrbit screens (T_Library, T_LibrarySort,
@@ -22,35 +23,15 @@ constexpr int kOutlineButtonPadRight = 12;
 constexpr int kOutlineButtonIconGap = 6;
 constexpr int kViewToggleCell = 56;
 
-// Outer box of a segmented control (1 px frame, 4 px pad) and its cells.
+// Segmented control geometry lives in PiccoSegmented; these names keep the screens' calls.
 constexpr int segmentedWidth(const int cellCount, const int cellWidth) {
-  using namespace PiccoTokens;
-  return 2 * (kHairline + kTabPad) + cellCount * cellWidth + (cellCount - 1) * kTabPad;
+  return PiccoSegmented::frameWidth(cellCount, cellWidth);
 }
-
 constexpr Box segmentCell(const Box& outer, const int count, const int index) {
-  using namespace PiccoTokens;
-  if (count <= 0 || index < 0 || index >= count) return Box{};
-  const int inset = kHairline + kTabPad;
-  const int inner = outer.width - 2 * inset - (count - 1) * kTabPad;
-  const int cell = PiccoLayout::maxOf(0, inner / count);
-  // The last cell takes the remainder so the right pad stays 4 px.
-  const int x = outer.x + inset + index * (cell + kTabPad);
-  const int width = index == count - 1 ? outer.right() - inset - x : cell;
-  return Box{x, outer.y + inset, PiccoLayout::maxOf(0, width), PiccoLayout::maxOf(0, outer.height - 2 * inset)};
+  return PiccoSegmented::cell(outer, count, index);
 }
-
-// Index of the cell under (px, py), or -1 (the pads between cells belong to no cell).
 constexpr int segmentAt(const Box& outer, const int count, const int px, const int py) {
-  if (!outer.contains(px, py)) return -1;
-  for (int i = 0; i < count; ++i) {
-    const Box cell = segmentCell(outer, count, i);
-    // Pads belong to the nearer cell so the whole frame is a target.
-    const int left = i == 0 ? outer.x : cell.x - PiccoTokens::kTabPad / 2;
-    const int right = i == count - 1 ? outer.right() : cell.right() + PiccoTokens::kTabPad / 2;
-    if (px >= left && px < right) return i;
-  }
-  return -1;
+  return PiccoSegmented::at(outer, count, px, py);
 }
 
 // Gutter-to-gutter band of `height` starting kBandGap below `top`.

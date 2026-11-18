@@ -22,25 +22,42 @@ int textTop(const GfxRenderer& renderer, const int fontId, const int centerY) {
 }
 
 void drawSegmentedFrame(const GfxRenderer& renderer, const Rect& outer, const int count, const int selected) {
-  renderer.drawRoundedRect(outer.x, outer.y, outer.width, outer.height, PiccoTokens::kHairline,
-                           PiccoTokens::kTabRadius, true);
+  renderer.drawRoundedRect(outer.x, outer.y, outer.width, outer.height, PiccoTokens::kHairline, PiccoTokens::kTabRadius,
+                           true);
   if (selected < 0 || selected >= count) return;
-  const auto cell = PiccoLibraryLayout::segmentCell(toBox(outer), count, selected);
+  const auto cell = PiccoSegmented::cell(toBox(outer), count, selected);
   renderer.drawRoundedRect(cell.x, cell.y, cell.width, cell.height, PiccoTokens::kSelectionStroke,
                            PiccoTokens::kTabCellRadius, true);
 }
 
 void drawSegmented(const GfxRenderer& renderer, const Rect& outer, const char* const* labels, const int count,
-                   const int selected) {
+                   const int selected, const int fontId) {
+  constexpr int kLabelClearance = 8;
   drawSegmentedFrame(renderer, outer, count, selected);
   for (int i = 0; i < count; ++i) {
-    const auto cell = PiccoLibraryLayout::segmentCell(toBox(outer), count, i);
+    const auto cell = PiccoSegmented::cell(toBox(outer), count, i);
     const auto style = i == selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
     const std::string visible =
-        renderer.truncatedText(kLabelFont, labels[i] != nullptr ? labels[i] : "", cell.width - 16, style);
-    const int w = renderer.getTextWidth(kLabelFont, visible.c_str(), style);
-    renderer.drawText(kLabelFont, cell.x + (cell.width - w) / 2, textTop(renderer, kLabelFont, cell.y + cell.height / 2),
+        renderer.truncatedText(fontId, labels[i] != nullptr ? labels[i] : "", cell.width - 2 * kLabelClearance, style);
+    const int w = renderer.getTextWidth(fontId, visible.c_str(), style);
+    renderer.drawText(fontId, cell.x + (cell.width - w) / 2, textTop(renderer, fontId, cell.y + cell.height / 2),
                       visible.c_str(), true, style);
+  }
+}
+
+void drawSegmented(const GfxRenderer& renderer, const Rect& outer, const char* const* labels, const int count,
+                   const int selected) {
+  drawSegmented(renderer, outer, labels, count, selected, kLabelFont);
+}
+
+void drawSegmentedIcons(const GfxRenderer& renderer, const Rect& outer, const freeink::Icon* const* icons,
+                        const int count, const int selected) {
+  drawSegmentedFrame(renderer, outer, count, selected);
+  for (int i = 0; i < count; ++i) {
+    if (icons[i] == nullptr) continue;
+    const auto cell = PiccoSegmented::cell(toBox(outer), count, i);
+    drawLucideIcon(renderer, *icons[i], cell.x + (cell.width - icons[i]->w) / 2,
+                   cell.y + (cell.height - icons[i]->h) / 2);
   }
 }
 
@@ -57,8 +74,8 @@ void drawOutlineButton(const GfxRenderer& renderer, const Rect& rect, const char
                            true);
   const char* text = label != nullptr ? label : "";
   const int iconW = icon != nullptr ? icon->w + PiccoLibraryLayout::kOutlineButtonIconGap : 0;
-  const int maxLabel = rect.width - PiccoLibraryLayout::kOutlineButtonPadLeft -
-                       PiccoLibraryLayout::kOutlineButtonPadRight - iconW;
+  const int maxLabel =
+      rect.width - PiccoLibraryLayout::kOutlineButtonPadLeft - PiccoLibraryLayout::kOutlineButtonPadRight - iconW;
   const std::string visible = renderer.truncatedText(kLabelFont, text, maxLabel);
   const int labelW = renderer.getTextWidth(kLabelFont, visible.c_str());
   const int contentW = labelW + iconW;
@@ -84,8 +101,7 @@ void drawCheckRow(const GfxRenderer& renderer, const Rect& row, const char* labe
   const auto& check = icon_picco_check_22;
   const int labelMax = row.width - check.w - PiccoTokens::kGroupGap;
   const std::string visible = renderer.truncatedText(kRowFont, label != nullptr ? label : "", labelMax, style);
-  renderer.drawText(kRowFont, row.x, textTop(renderer, kRowFont, row.y + row.height / 2), visible.c_str(), true,
-                    style);
+  renderer.drawText(kRowFont, row.x, textTop(renderer, kRowFont, row.y + row.height / 2), visible.c_str(), true, style);
   if (checked) drawLucideIcon(renderer, check, row.x + row.width - check.w, row.y + (row.height - check.h) / 2);
   if (focused) {
     const auto frame = PiccoLayout::rowFocusFrame(renderer.getScreenWidth(), row.y, row.height);

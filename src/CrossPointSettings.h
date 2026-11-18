@@ -417,6 +417,12 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
                                                 PICCO
 #endif
   };
+  // Picco builds start a fresh settings file on the Picco theme; a stored theme always wins.
+#if defined(CROSSINK_APP_PICCO_UI) && CROSSINK_APP_PICCO_UI
+  static constexpr uint8_t DEFAULT_UI_THEME = PICCO;
+#else
+  static constexpr uint8_t DEFAULT_UI_THEME = LYRA;
+#endif
   enum RECENT_BOOKS_VIEW { RECENT_BOOKS_LIST = 0, RECENT_BOOKS_GRID = 1, RECENT_BOOKS_VIEW_COUNT };
 
   // Image rendering in EPUB reader
@@ -679,7 +685,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontButtonLeftLong = IGNORE;
   uint8_t frontButtonRightLong = IGNORE;
   // UI Theme
-  uint8_t uiTheme = LYRA;
+  uint8_t uiTheme = DEFAULT_UI_THEME;
   uint8_t swapLibraryFileBrowser = 0;
   bool supportsLibraryFileBrowserSwap() const { return uiTheme == MINIMAL || uiTheme == DASHBOARD; }
   bool isLibraryFileBrowserSwapped() const { return supportsLibraryFileBrowserSwap() && swapLibraryFileBrowser; }
@@ -788,6 +794,35 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t trackReadingStats = 1;
 
   ~CrossPointSettings() = default;
+
+  // The Picco UI hides Quick Actions but keeps its persisted numbers reserved. On load a
+  // stored "Open Quick Actions" binding becomes the reader menu (the sheet) where the field
+  // offers one, else nothing. The same table hides the picker values.
+  struct QuickActionsBinding {
+    uint8_t CrossPointSettings::* field;
+    uint8_t openQuickActions;
+    uint8_t piccoReplacement;
+  };
+  static constexpr QuickActionsBinding QUICK_ACTIONS_BINDINGS[] = {
+      {&CrossPointSettings::shortPwrBtn, QUICK_ACTIONS, IGNORE},
+      {&CrossPointSettings::longPwrBtn, QUICK_ACTIONS, IGNORE},
+      {&CrossPointSettings::sideButtonUpShort, QUICK_ACTIONS, IGNORE},
+      {&CrossPointSettings::sideButtonUpLong, QUICK_ACTIONS, IGNORE},
+      {&CrossPointSettings::sideButtonDownShort, QUICK_ACTIONS, IGNORE},
+      {&CrossPointSettings::sideButtonDownLong, QUICK_ACTIONS, IGNORE},
+      {&CrossPointSettings::frontButtonLeftLong, QUICK_ACTIONS, IGNORE},
+      {&CrossPointSettings::frontButtonRightLong, QUICK_ACTIONS, IGNORE},
+      {&CrossPointSettings::homeButtonTapAction, QUICK_ACTIONS, HOME_BUTTON_READER_MENU},
+      {&CrossPointSettings::homeButtonDoubleTapAction, QUICK_ACTIONS, HOME_BUTTON_READER_MENU},
+      {&CrossPointSettings::homeButtonLongPressAction, QUICK_ACTIONS, HOME_BUTTON_READER_MENU},
+      {&CrossPointSettings::powerChordAction, CHORD_QUICK_ACTIONS, CHORD_DISABLED},
+      {&CrossPointSettings::sideButtonChordAction, CHORD_QUICK_ACTIONS, CHORD_DISABLED},
+      {&CrossPointSettings::longPressMenuAction, LONG_MENU_QUICK_ACTIONS, LONG_MENU_OFF},
+      {&CrossPointSettings::longPressBackAction, LONG_MENU_QUICK_ACTIONS, LONG_MENU_OFF},
+  };
+  static constexpr uint8_t withoutQuickActions(const QuickActionsBinding& binding, const uint8_t raw) {
+    return raw == binding.openQuickActions ? binding.piccoReplacement : raw;
+  }
 
   static constexpr uint16_t POWER_BUTTON_LONG_PRESS_MS = 400;
   static constexpr uint16_t POWER_BUTTON_WAKE_SHORT_MS = 10;

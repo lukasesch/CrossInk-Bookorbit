@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "components/picco/PiccoLayout.h"
+#include "components/picco/PiccoSegmented.h"
 #include "components/picco/PiccoTokens.h"
 
 // Pure model of the Picco reader sheet (boards T_ReaderSheetDivider, T_ReaderSheetText*,
@@ -396,7 +397,6 @@ constexpr int kChipsPerLine = 3;
 constexpr int kCellsPerLine = 2;
 constexpr int kTabTop = 12;
 constexpr int kStepperValueW = 64;
-constexpr int kSegmentGap = 4;
 constexpr int kOrientationCellW = 60;
 constexpr int kAlignmentCellW = 52;
 constexpr int kButtonW = 104;
@@ -422,10 +422,7 @@ constexpr TabBar tabBar(const int screenWidth, const int top) {
   using namespace PiccoTokens;
   TabBar t{};
   t.bar = Box{kGutter, top, contentWidth(screenWidth), kTabBarHeight};
-  const int inner = kTabPad + kHairline;
-  const int cellW = (t.bar.width - 2 * inner - kTabPad) / 2;
-  t.cells[0] = Box{t.bar.x + inner, top + inner, cellW, kTabCell};
-  t.cells[1] = Box{t.bar.right() - inner - cellW, top + inner, cellW, kTabCell};
+  for (int i = 0; i < 2; ++i) t.cells[static_cast<size_t>(i)] = PiccoSegmented::cell(t.bar, 2, i);
   return t;
 }
 
@@ -667,17 +664,11 @@ struct Segmented {
 };
 
 constexpr Segmented segmented(const Box& row, const int count, const int cellWidth) {
-  using namespace PiccoTokens;
   Segmented s{};
   const int n = count < 0 ? 0 : (count > 5 ? 5 : count);
   s.count = static_cast<uint8_t>(n);
-  const int inner = kTabPad + kHairline;
-  const int width = n * cellWidth + (n > 0 ? (n - 1) * kSegmentGap : 0) + 2 * inner;
-  s.frame = Box{row.right() - width, row.y + (row.height - kTabBarHeight) / 2, width, kTabBarHeight};
-  for (int i = 0; i < n; ++i) {
-    s.cells[static_cast<size_t>(i)] =
-        Box{s.frame.x + inner + i * (cellWidth + kSegmentGap), s.frame.y + inner, cellWidth, kTabCell};
-  }
+  s.frame = PiccoSegmented::rightAligned(row, n, cellWidth);
+  for (int i = 0; i < n; ++i) s.cells[static_cast<size_t>(i)] = PiccoSegmented::cell(s.frame, n, i);
   return s;
 }
 
