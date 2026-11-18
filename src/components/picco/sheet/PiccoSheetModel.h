@@ -21,7 +21,7 @@ using PiccoLayout::Box;
 // Epub: the full sheet.
 enum class Variant : uint8_t { Outside, Reader, Epub };
 
-enum class Pane : uint8_t { Main, Text, TextMore, More, GoTo, AutoPageTurn, Advanced, FontRendering, Count };
+enum class Pane : uint8_t { Main, Text, TextMore, More, GoTo, AutoPageTurn, Advanced, FontRendering, Qr, Count };
 
 // Where Back (header chevron, Back button) leads.
 constexpr Pane parentPane(const Pane pane) {
@@ -34,6 +34,7 @@ constexpr Pane parentPane(const Pane pane) {
       return Pane::Text;
     case Pane::AutoPageTurn:
     case Pane::Advanced:
+    case Pane::Qr:
       return Pane::More;
     case Pane::FontRendering:
       return Pane::Advanced;
@@ -373,6 +374,7 @@ constexpr Blocks paneBlocks(const Pane pane, const uint8_t tab, const Availabili
     case Pane::Main:
     case Pane::GoTo:
     case Pane::AutoPageTurn:
+    case Pane::Qr:
     case Pane::Count:
       break;
   }
@@ -759,6 +761,37 @@ constexpr AutoTurnLayout autoTurnLayout(const int screenWidth) {
   a.pill = Box{kGutter, a.hint.bottom() + 18, w, kPillHeight};
   a.bottom = a.pill.bottom() + kSheetFoot;
   return a;
+}
+
+// Page as QR (board T_QrPage): framed code under the header, two caption lines.
+constexpr int kQrFrame = 332;
+constexpr int kQrPad = 20;
+constexpr int kQrTop = 24;
+constexpr int kQrCaptionGap = 16;
+constexpr int kQrCaptionLine = 26;
+constexpr int kQrDetailGap = 4;
+constexpr int kQrDetailLine = 21;
+constexpr int kQrFoot = 57;
+
+struct QrLayout {
+  Box frame;
+  Box code;
+  Box caption;
+  Box detail;
+  int bottom = 0;
+};
+
+constexpr QrLayout qrLayout(const int screenWidth) {
+  using namespace PiccoTokens;
+  QrLayout q{};
+  const int w = contentWidth(screenWidth);
+  const int side = PiccoLayout::minOf(kQrFrame, w);
+  q.frame = Box{(screenWidth - side) / 2, kHeaderHeight + kQrTop, side, side};
+  q.code = Box{q.frame.x + kQrPad, q.frame.y + kQrPad, side - 2 * kQrPad, side - 2 * kQrPad};
+  q.caption = Box{kGutter, q.frame.bottom() + kQrCaptionGap, w, kQrCaptionLine};
+  q.detail = Box{kGutter, q.caption.bottom() + kQrDetailGap, w, kQrDetailLine};
+  q.bottom = q.detail.bottom() + kQrFoot;
+  return q;
 }
 
 // ---- Go to entry ---------------------------------------------------------------------------

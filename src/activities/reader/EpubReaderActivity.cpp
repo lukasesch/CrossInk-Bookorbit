@@ -4302,6 +4302,26 @@ void EpubReaderActivity::openWordSelect(bool framebufferContainsPage, int initia
   });
 }
 
+
+// The words of the page on screen, space-separated (QR payload).
+std::string EpubReaderActivity::currentPageText() {
+  std::string fullText;
+  if (!section || section->currentPage < 0 || section->currentPage >= section->pageCount) return fullText;
+  auto p = section->loadPage(section->currentPage);
+  if (!p) return fullText;
+  for (const auto& el : p->elements) {
+    if (el->getTag() != TAG_PageLine) continue;
+    const auto& line = static_cast<const PageLine&>(*el);
+    if (!line.getBlock()) continue;
+    const auto& block = *line.getBlock();
+    for (uint16_t i = 0; i < block.wordCount(); ++i) {
+      if (!fullText.empty()) fullText += " ";
+      fullText += block.wordText(i);
+    }
+  }
+  return fullText;
+}
+
 void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const bool returnToReaderMenu,
                                              const PendingOverlayResume* replacementResume) {
   switch (action) {
@@ -4438,34 +4458,17 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuAction action, const 
       break;
     }
     case EpubReaderMenuAction::DISPLAY_QR: {
-      if (section && section->currentPage >= 0 && section->currentPage < section->pageCount) {
-        auto p = section->loadPage(section->currentPage);
-        if (p) {
-          std::string fullText;
-          for (const auto& el : p->elements) {
-            if (el->getTag() == TAG_PageLine) {
-              const auto& line = static_cast<const PageLine&>(*el);
-              if (line.getBlock()) {
-                const auto& block = *line.getBlock();
-                for (uint16_t i = 0; i < block.wordCount(); ++i) {
-                  if (!fullText.empty()) fullText += " ";
-                  fullText += block.wordText(i);
-                }
-              }
-            }
-          }
-          if (!fullText.empty()) {
-            pauseReadingPaceTimer("qr_display");
-            startActivityForResult(std::make_unique<QrDisplayActivity>(renderer, mappedInput, fullText),
-                                   [this, returnToReaderMenu](const ActivityResult&) {
-                                     if (returnToReaderMenu)
-                                       openReaderMenu();
-                                     else
-                                       requestUpdate();
-                                   });
-            break;
-          }
-        }
+      const std::string fullText = currentPageText();
+      if (!fullText.empty()) {
+        pauseReadingPaceTimer("qr_display");
+        startActivityForResult(std::make_unique<QrDisplayActivity>(renderer, mappedInput, fullText),
+                               [this, returnToReaderMenu](const ActivityResult&) {
+                                 if (returnToReaderMenu)
+                                   openReaderMenu();
+                                 else
+                                   requestUpdate();
+                               });
+        break;
       }
       // If no text or page loading failed, just close menu
       requestUpdate();
@@ -5111,6 +5114,8 @@ bool EpubReaderActivity::fillReaderSheetDetails(ReaderSheetDetails& details) {
   details.format = ReaderSheetDetails::Format::Epub;
   details.hasContents = true;
   details.epub = epub;
+  details.pageText = [](void* context) { return static_cast<EpubReaderActivity*>(context)->currentPageText(); };
+  details.pageTextContext = this;
   details.initialState = readerSheetState;
   readerSheetState = FrontlightDrawerState{};
   details.callbacks = {saveReaderOptionsForBook,

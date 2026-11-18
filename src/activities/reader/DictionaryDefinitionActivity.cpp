@@ -34,6 +34,11 @@
 #include "util/LookupHistory.h"
 #include "util/TextPool.h"
 
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoOverlayDraw.h"
+#include "components/picco/sheet/PiccoSheetDraw.h"
+#endif
+
 namespace {
 Rect dictionaryHeaderRect(const GfxRenderer& renderer, const int contentX, const int gutterWidth,
                           const int gutterHeight) {
@@ -502,8 +507,36 @@ bool DictionaryDefinitionActivity::showTouchDictionarySwitch() const {
 }
 #endif
 
+bool DictionaryDefinitionActivity::piccoModal() const { return UITheme::isPicco() && hasModalBackground(); }
+
+// T_WordLookup sets the headword in Literata; the built-in face covers ASCII only, so
+// other headwords keep the definition font, which has their glyphs.
+int DictionaryDefinitionActivity::titleFontId() const {
+#if CROSSINK_APP_PICCO_UI
+  if (piccoModal() && std::all_of(headword.begin(), headword.end(), [](const char c) {
+        return static_cast<unsigned char>(c) >= 0x20 && static_cast<unsigned char>(c) < 0x7F;
+      })) {
+    return LITERATA_15_FONT_ID;
+  }
+#endif
+  return getDefinitionFontId();
+}
+
+#if CROSSINK_APP_PICCO_UI
+PiccoOverlay::ButtonRow DictionaryDefinitionActivity::piccoButtons() const {
+  const int padding = PiccoTokens::kDialogPadding;
+#if CROSSINK_APP_CAP_TOUCH
+  const int count = showTouchDictionarySwitch() ? (hasClippingRequest_ ? 2 : 1) : 0;
+#else
+  constexpr int count = 0;
+#endif
+  return PiccoOverlay::buttonRow(modalX_ + padding, modalY_ + modalHeight_ - padding - PiccoTokens::kActionHeight,
+                                 modalWidth_ - 2 * padding, count);
+}
+#endif
+
 int DictionaryDefinitionActivity::dictionaryTitleHeight() const {
-  const int lineHeight = renderer.getLineHeight(getDefinitionFontId());
+  const int lineHeight = renderer.getLineHeight(titleFontId());
 #if CROSSINK_APP_CAP_TOUCH
   return mappedInput.hasTouchHardware() ? std::max(kDictionaryCloseTouchSize, lineHeight) : lineHeight;
 #else
@@ -533,6 +566,14 @@ int DictionaryDefinitionActivity::dictionaryFooterHeight() const {
   if (!hasModalBackground()) return renderer.getLineHeight(SMALL_FONT_ID);
 
   const auto metrics = UITheme::getInstance().getMetrics();
+#if CROSSINK_APP_PICCO_UI && CROSSINK_APP_CAP_TOUCH
+  if (piccoModal()) {
+    // "Dictionary: name" line, then the equal button row.
+    const int nameHeight = renderer.getLineHeight(SMALL_FONT_ID) + metrics.optionPopupTitleGap;
+    return nameHeight +
+           (showTouchDictionarySwitch() ? PiccoOverlay::kButtonRowGap + PiccoTokens::kActionHeight : 0);
+  }
+#endif
   const int dictionaryNameHeight = renderer.getLineHeight(UI_10_FONT_ID) + metrics.optionPopupTitleGap;
 #if CROSSINK_APP_CAP_TOUCH
   return dictionaryNameHeight +
@@ -544,11 +585,17 @@ int DictionaryDefinitionActivity::dictionaryFooterHeight() const {
 
 #if CROSSINK_APP_CAP_TOUCH
 bool DictionaryDefinitionActivity::dictionarySwitchButtonContains(const int x, const int y) const {
+#if CROSSINK_APP_PICCO_UI
+  if (piccoModal()) return piccoButtons().count > 0 && piccoButtons().cells[0].contains(x, y);
+#endif
   const int buttonY = modalY_ + modalHeight_ - kDictionarySwitchTouchHeight * (hasClippingRequest_ ? 2 : 1);
   return x >= modalX_ && x < modalX_ + modalWidth_ && y >= buttonY && y < buttonY + kDictionarySwitchTouchHeight;
 }
 
 bool DictionaryDefinitionActivity::dictionaryCreateClippingButtonContains(const int x, const int y) const {
+#if CROSSINK_APP_PICCO_UI
+  if (piccoModal()) return hasClippingRequest_ && piccoButtons().count > 1 && piccoButtons().cells[1].contains(x, y);
+#endif
   const int buttonY = modalY_ + modalHeight_ - kDictionarySwitchTouchHeight;
   return hasClippingRequest_ && x >= modalX_ && x < modalX_ + modalWidth_ && y >= buttonY &&
          y < buttonY + kDictionarySwitchTouchHeight;
@@ -560,6 +607,32 @@ bool DictionaryDefinitionActivity::modalContains(const int x, const int y) const
          y < modalY_ + modalHeight_ + frameThickness;
 }
 #endif
+
+// T_WordLookup footer: "Dictionary: name" with the page "n / m", then the button row
+// (Switch dictionary, Create clipping when a clipping waits on this lookup).
+void DictionaryDefinitionActivity::drawPiccoFooter() const {
+#if CROSSINK_APP_PICCO_UI
+  const int padding = PiccoTokens::kDialogPadding;
+  const int lineHeight = renderer.getLineHeight(SMALL_FONT_ID);
+  const auto buttons = piccoButtons();
+  const int bottom = buttons.count > 0 ? buttons.cells[0].y - PiccoOverlay::kButtonRowGap : modalY_ + modalHeight_ - padding;
+  const PiccoLayout::Box line{modalX_ + padding, bottom - lineHeight, modalWidth_ - 2 * padding, lineHeight};
+  char page[16] = {};
+  if (!isWordSelectMode && totalPages > 1) {
+    snprintf(page, sizeof(page), tr(STR_PICCO_PAGE_INDICATOR_FORMAT), static_cast<unsigned>(currentPage + 1),
+             static_cast<unsigned>(totalPages));
+  }
+  const int pageWidth = page[0] ? renderer.getTextWidth(SMALL_FONT_ID, page) + PiccoTokens::kGroupGap : 0;
+  char name[96];
+  snprintf(name, sizeof(name), tr(STR_PICCO_DICT_NAME_FORMAT), dictionaryName_.c_str());
+  PiccoSheetDraw::text(renderer, SMALL_FONT_ID, PiccoLayout::Box{line.x, line.y, line.width - pageWidth, line.height},
+                       name);
+  PiccoSheetDraw::text(renderer, SMALL_FONT_ID, line, page, EpdFontFamily::REGULAR, PiccoSheetDraw::Align::Right);
+  if (isWordSelectMode || buttons.count == 0) return;
+  PiccoOverlayDraw::button(renderer, buttons.cells[0], tr(STR_SWITCH_DICTIONARY));
+  if (buttons.count > 1) PiccoOverlayDraw::button(renderer, buttons.cells[1], tr(STR_SAVE_CLIPPING));
+#endif
+}
 
 // ---------------------------------------------------------------------------
 // Layout helpers — shared setup
@@ -1558,8 +1631,10 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
 
   const auto metrics = UITheme::getInstance().getMetrics();
   const int bodyFontId = getDefinitionFontId();
-  const int titleFontId = bodyFontId;
-  const int titleLineHeight = renderer.getLineHeight(titleFontId);
+  const int titleFont = titleFontId();
+  // The Literata face is a single SemiBold weight; asking it for bold would fall back.
+  const EpdFontFamily::Style titleStyle = titleFont == bodyFontId ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+  const int titleLineHeight = renderer.getLineHeight(titleFont);
   const int indentStep = renderer.getTextWidth(bodyFontId, "   ");
 
   // Header chrome stays in the built-in UI font; the looked-up word uses the
@@ -1567,7 +1642,7 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
   const Rect headerRect = definitionHeaderRect();
   if (hasModalBackground()) {
     drawModalFrame();
-    if (metrics.optionPopupTitleSeparator) {
+    if (metrics.optionPopupTitleSeparator && !piccoModal()) {
       const int separatorY = headerRect.y + headerRect.height + metrics.optionPopupTitleGap / 2;
       renderer.drawLine(headerRect.x, separatorY, headerRect.x + headerRect.width, separatorY, true);
     }
@@ -1589,10 +1664,8 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
   const int titleY = headerRect.y + (headerRect.height - titleLineHeight) / 2;
   const int titleMaxWidth = std::max(0, titleRight - titleX);
   const std::string visibleHeadword =
-      renderer.truncatedText(titleFontId, headword.c_str(), titleMaxWidth, EpdFontFamily::BOLD);
-  auto renderTitle = [&]() {
-    renderer.drawText(titleFontId, titleX, titleY, visibleHeadword.c_str(), true, EpdFontFamily::BOLD);
-  };
+      renderer.truncatedText(titleFont, headword.c_str(), titleMaxWidth, titleStyle);
+  auto renderTitle = [&]() { renderer.drawText(titleFont, titleX, titleY, visibleHeadword.c_str(), true, titleStyle); };
 
   // Body: draw layout lines for the current page (BW pass). layoutLines holds
   // only the current page (Stage 2a streaming), so it is indexed from 0.
@@ -1690,7 +1763,9 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
     snprintf(pageInfo, sizeof(pageInfo), "%d/%d", currentPage + 1, totalPages);
   }
 
-  if (hasModalBackground()) {
+  if (piccoModal()) {
+    drawPiccoFooter();
+  } else if (hasModalBackground()) {
     const int innerPadding = metrics.optionPopupInnerPadding;
     const int footerLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
 #if CROSSINK_APP_CAP_TOUCH
@@ -1718,7 +1793,7 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
   }
 
 #if CROSSINK_APP_CAP_TOUCH
-  if (!isWordSelectMode && showTouchDictionarySwitch()) {
+  if (!isWordSelectMode && showTouchDictionarySwitch() && !piccoModal()) {
     const Rect buttonRect{modalX_,
                           modalY_ + modalHeight_ - kDictionarySwitchTouchHeight * (hasClippingRequest_ ? 2 : 1),
                           modalWidth_, kDictionarySwitchTouchHeight};

@@ -16,6 +16,11 @@
 #include "components/UITheme.h"
 #include "util/InputReleaseGuard.h"
 
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoOverlayDraw.h"
+#include "components/picco/sheet/PiccoSheetDraw.h"
+#endif
+
 void EpubReaderFootnoteSelectActivity::onEnter() {
   Activity::onEnter();
   ignoreInitialBackRelease = mappedInput.isPressed(MappedInputManager::Button::Back);
@@ -61,6 +66,20 @@ void EpubReaderFootnoteSelectActivity::loop() {
   int touchX = 0;
   int touchY = 0;
   if (mappedInput.hasTouch() && mappedInput.wasScreenTapped(touchX, touchY)) {
+#if CROSSINK_APP_PICCO_UI
+    if (UITheme::isPicco() && selected < selectableCount) {
+      const auto popover = piccoPopover();
+      if (popover.buttons.cells[0].contains(touchX, touchY)) {
+        performJump();
+        return;
+      }
+      if (popover.buttons.cells[1].contains(touchX, touchY)) {
+        cancel();
+        return;
+      }
+      if (popover.frame.contains(touchX, touchY)) return;
+    }
+#endif
     int bestIndex = -1;
     int64_t bestDistance = INT64_MAX;
     for (uint8_t i = 0; i < selectableCount; ++i) {
@@ -82,6 +101,13 @@ void EpubReaderFootnoteSelectActivity::loop() {
       performJump();
       return;
     }
+#if CROSSINK_APP_PICCO_UI
+    // The popover closes like a dialog: a tap beside it dismisses the selection.
+    if (UITheme::isPicco()) {
+      cancel();
+      return;
+    }
+#endif
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
@@ -132,7 +158,34 @@ bool EpubReaderFootnoteSelectActivity::drawHighlightWithSnapshot() {
   return saved;
 }
 
+#if CROSSINK_APP_PICCO_UI
+PiccoOverlay::NotePopover EpubReaderFootnoteSelectActivity::piccoPopover() const {
+  const auto& target = targets[selectable[selected < selectableCount ? selected : 0]];
+  const PiccoLayout::Box screen{0, 0, renderer.getScreenWidth(), renderer.getScreenHeight()};
+  return PiccoOverlay::notePopover(screen, PiccoLayout::Box{target.x, target.y, target.width, target.height});
+}
+
+// T_Footnote: a 2 px frame around the selected note mark and the note popover under it.
+void EpubReaderFootnoteSelectActivity::drawPiccoSelection() const {
+  if (selected >= selectableCount) return;
+  const uint8_t index = selectable[selected];
+  const auto& target = targets[index];
+  PiccoOverlayDraw::markFrame(renderer, PiccoLayout::Box{target.x, target.y, target.width, target.height});
+  const auto popover = piccoPopover();
+  PiccoOverlayDraw::popover(renderer, popover.frame);
+  char label[48];
+  snprintf(label, sizeof(label), tr(STR_PICCO_NOTE_FORMAT), page->footnotes[index].number);
+  PiccoSheetDraw::sectionLabel(renderer, popover.label, label);
+  PiccoOverlayDraw::button(renderer, popover.buttons.cells[0], tr(STR_PICCO_GO_TO_NOTE));
+  PiccoOverlayDraw::button(renderer, popover.buttons.cells[1], tr(STR_PICCO_CLOSE));
+}
+#endif
+
 void EpubReaderFootnoteSelectActivity::drawChrome() const {
+#if CROSSINK_APP_PICCO_UI
+  // The popover carries Go to note and Close; no header over the page.
+  if (UITheme::isPicco()) return drawPiccoSelection();
+#endif
   if (mappedInput.hasTouchHardware()) {
     TouchHeaderBackButton::draw(renderer, TouchHeaderBackButton::headerRect(renderer, mappedInput), tr(STR_FOOTNOTES),
                                 true);
@@ -142,7 +195,8 @@ void EpubReaderFootnoteSelectActivity::drawChrome() const {
 }
 
 void EpubReaderFootnoteSelectActivity::render(RenderLock&&) {
-  if (snapshotIdx >= 0 && selected != snapshotIdx) {
+  // The Picco popover moves with the selection and outgrows the snapshot: repaint the page.
+  if (snapshotIdx >= 0 && selected != snapshotIdx && !UITheme::isPicco()) {
     renderer.writeFramebufferRegion(snapshotX, snapshotY, snapshotW, snapshotH, snapshot.get());
     if (drawHighlightWithSnapshot()) {
       drawChrome();
@@ -185,7 +239,7 @@ void EpubReaderFootnoteSelectActivity::render(RenderLock&&) {
 
   renderer.clearScreen(ReaderUtils::readerBackgroundColor());
   page->render(renderer, fontId, marginLeft, marginTop, ReaderUtils::readerForegroundBlack());
-  drawHighlightWithSnapshot();
+  if (!UITheme::isPicco()) drawHighlightWithSnapshot();
   drawChrome();
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }

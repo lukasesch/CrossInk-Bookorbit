@@ -10,12 +10,17 @@
 #include <vector>
 
 #include "../Activity.h"
+#include "AppCapabilities.h"
 #include "util/DictLayout.h"
 #include "util/DictionaryLookupController.h"
 #include "util/IpaUtils.h"
 #include "util/LookupChain.h"
 #include "util/LookupHistory.h"
 #include "util/WordSelectNavigator.h"
+
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoReaderOverlays.h"
+#endif
 
 struct Rect;
 
@@ -226,6 +231,12 @@ class DictionaryDefinitionActivity final : public Activity {
   bool modalContains(int x, int y) const;
 #endif
   int dictionaryTitleHeight() const;
+  bool piccoModal() const;
+  int titleFontId() const;
+  void drawPiccoFooter() const;
+#if CROSSINK_APP_PICCO_UI
+  PiccoOverlay::ButtonRow piccoButtons() const;
+#endif
   Rect definitionHeaderRect() const;
 #if CROSSINK_APP_CAP_TOUCH
   Rect closeButtonRect() const;

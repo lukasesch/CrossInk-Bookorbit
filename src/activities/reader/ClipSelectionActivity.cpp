@@ -8,6 +8,7 @@
 #include <MemoryBudget.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 
 #include "ClipSelectionPaging.h"
@@ -18,6 +19,12 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/InputReleaseGuard.h"
+
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoOverlayDraw.h"
+#include "components/picco/PiccoPillButton.h"
+#include "components/picco/sheet/PiccoSheetDraw.h"
+#endif
 
 namespace {
 
@@ -336,7 +343,7 @@ void ClipSelectionActivity::loop() {
       return;
     }
   } else if (mappedInput.isScreenTouchLongPress(touchX, touchY, TOUCH_CLIP_HOLD_MS) &&
-             selectWordAtPoint(touchX, touchY)) {
+             !piccoToolbarContains(touchX, touchY) && selectWordAtPoint(touchX, touchY)) {
     if (startMarkIdx == -1) startMarkIdx = cursorIdx;
     touchDragSelecting = true;
     touchDragHasMoved = false;
@@ -347,9 +354,12 @@ void ClipSelectionActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasScreenTapped(touchX, touchY) && selectWordAtPoint(touchX, touchY)) {
-    confirmSelection();
-    return;
+  if (mappedInput.wasScreenTapped(touchX, touchY)) {
+    if (handlePiccoToolbarTap(touchX, touchY)) return;
+    if (selectWordAtPoint(touchX, touchY)) {
+      confirmSelection();
+      return;
+    }
   }
 
   buttonNavigator.onRelease({Button::Left}, [this, &moveCursor] {
@@ -558,6 +568,7 @@ void ClipSelectionActivity::render(RenderLock&&) {
     return;
   }
 
+  drawPiccoToolbar();
   const auto confirmLabel = startMarkIdx == -1 ? tr(STR_SELECT) : tr(STR_DONE);
   const auto labels =
       mappedInput.mapLabels(mappedInput.withBackArrow(tr(STR_BACK)), confirmLabel, tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
@@ -656,7 +667,125 @@ void ClipSelectionActivity::useFallbackFont(const char* reason) {
   usingFallbackFont = true;
 }
 
+bool ClipSelectionActivity::piccoToolbarShown() const {
+  return UITheme::isPicco() && mappedInput.hasTouchHardware() && !hasDictionaryRequest;
+}
+
+#if CROSSINK_APP_PICCO_UI
+PiccoOverlay::ClipToolbar ClipSelectionActivity::piccoToolbar() const {
+  const Rect pill = PiccoPillButton::rect(renderer, 0, 0, tr(STR_PICCO_CLIP_SAVE));
+  return PiccoOverlay::clipToolbar(PiccoLayout::Box{0, 0, renderer.getScreenWidth(), renderer.getScreenHeight()},
+                                   pill.width);
+}
+#endif
+
+bool ClipSelectionActivity::piccoToolbarContains(const int x, const int y) const {
+#if CROSSINK_APP_PICCO_UI
+  return piccoToolbarShown() && piccoToolbar().band.contains(x, y);
+#else
+  (void)x;
+  (void)y;
+  return false;
+#endif
+}
+
+bool ClipSelectionActivity::handlePiccoToolbarTap(const int x, const int y) {
+#if CROSSINK_APP_PICCO_UI
+  if (!piccoToolbarContains(x, y)) return false;
+  const auto toolbar = piccoToolbar();
+  if (toolbar.cancel.contains(x, y)) {
+    ActivityResult result;
+    result.isCancelled = true;
+    setResult(std::move(result));
+    finish();
+  } else if (toolbar.save.contains(x, y)) {
+    // Without a start mark the clipping is the word under the cursor.
+    if (startMarkIdx == -1) startMarkIdx = cursorIdx;
+    confirmSelection();
+  }
+  return true;
+#else
+  (void)x;
+  (void)y;
+  return false;
+#endif
+}
+
+// T_ClippingSelect: hairline band at the bottom with the word count, Cancel and Save.
+void ClipSelectionActivity::drawPiccoToolbar() const {
+#if CROSSINK_APP_PICCO_UI
+  if (!piccoToolbarShown()) return;
+  const auto toolbar = piccoToolbar();
+  renderer.fillRect(toolbar.band.x, toolbar.band.y, toolbar.band.width, toolbar.band.height, false);
+  PiccoSheetDraw::hairline(renderer, toolbar.band.x, toolbar.band.y, toolbar.band.width);
+  if (startMarkIdx != -1) {
+    char count[32];
+    snprintf(count, sizeof(count), tr(STR_PICCO_CLIP_WORDS_FORMAT),
+             static_cast<unsigned>(std::abs(cursorIdx - startMarkIdx) + 1));
+    PiccoSheetDraw::text(renderer, SMALL_FONT_ID, toolbar.count, count);
+  }
+  PiccoOverlayDraw::button(renderer, toolbar.cancel, tr(STR_CANCEL));
+  PiccoPillButton::draw(renderer, Rect{toolbar.save.x, toolbar.save.y, toolbar.save.width, toolbar.save.height},
+                        tr(STR_PICCO_CLIP_SAVE));
+#endif
+}
+
+#if CROSSINK_APP_PICCO_UI
+// Picco marks the range with a 2 px underline and round handles at its ends; the cursor
+// alone gets the 2 px word frame.
+void ClipSelectionActivity::drawPiccoHighlights() {
+  static constexpr int kUnderline = PiccoTokens::kSelectionStroke;
+  static constexpr int kHandle = 14;
+  const auto underline = [this](const int x, const int y, const int width) {
+    if (width > 0) renderer.fillRect(x, y - kUnderline, width, kUnderline, true);
+  };
+  const WordRef& cursorWord = wordStore.words[readingOrder[cursorIdx]];
+  if (startMarkIdx == -1) {
+    if (cursorWord.pageIdx != currentDisplayPage) return;
+    const auto rect = wordHighlightRect(cursorWord);
+    PiccoOverlayDraw::markFrame(renderer, PiccoLayout::Box{rect.x, rect.y, rect.width, rect.height});
+    return;
+  }
+  const int from = std::min(startMarkIdx, cursorIdx);
+  const int to = std::max(startMarkIdx, cursorIdx);
+  const uint16_t tableSelection = tableSelectionForRange(from, to);
+  ClippingHighlightGeometry::WordRect previousRect;
+  bool hasPreviousRect = false;
+  for (int i = from; i <= to; i++) {
+    const WordRef& word = wordStore.words[readingOrder[i]];
+    if (word.pageIdx != currentDisplayPage ||
+        (tableSelection != UINT16_MAX && word.tableSelection != tableSelection)) {
+      hasPreviousRect = false;
+      continue;
+    }
+    const auto rect = wordHighlightRect(word);
+    const auto& first = previousRect.pageWordIndex < rect.pageWordIndex ? previousRect : rect;
+    const auto& second = previousRect.pageWordIndex < rect.pageWordIndex ? rect : previousRect;
+    ClippingHighlightGeometry::GapRect gap;
+    if (hasPreviousRect && ClippingHighlightGeometry::gapBetweenAdjacentWords(first, second, gap)) {
+      underline(gap.x, gap.y + gap.height, gap.width);
+    }
+    underline(rect.x, rect.y + rect.height, rect.width);
+    previousRect = rect;
+    hasPreviousRect = rect.width > 0;
+  }
+  const auto handle = [this](const WordRef& word, const bool atEnd) {
+    if (word.pageIdx != currentDisplayPage) return;
+    const auto rect = wordHighlightRect(word);
+    const int cx = atEnd ? rect.x + rect.width : rect.x;
+    const int top = rect.y + rect.height + 2;
+    renderer.fillRoundedRect(cx - kHandle / 2, top, kHandle, kHandle, kHandle / 2, Color::White);
+    renderer.drawRoundedRect(cx - kHandle / 2, top, kHandle, kHandle, PiccoTokens::kSelectionStroke, kHandle / 2, true);
+  };
+  handle(wordStore.words[readingOrder[from]], false);
+  handle(wordStore.words[readingOrder[to]], true);
+}
+#endif
+
 void ClipSelectionActivity::drawHighlights() {
+#if CROSSINK_APP_PICCO_UI
+  if (UITheme::isPicco()) return drawPiccoHighlights();
+#endif
   // An underline sits below the ascender and collides with descenders when
   // the reader's line height has no spare leading. The fill and cursor border
   // already distinguish the selected range and its active endpoint.

@@ -23,6 +23,10 @@ struct ReaderSheetDetails {
 
   // EPUB only below.
   std::shared_ptr<Epub> epub;
+  // Text of the page under the sheet, read only when the QR pane opens. The reader stays
+  // paused under the sheet, so the context outlives the call.
+  std::string (*pageText)(void* context) = nullptr;
+  void* pageTextContext = nullptr;
   ReaderSettingsController::Callbacks callbacks{};
   std::string dictionaryFontFamily;
   uint8_t dictionaryFontPointSize = 0;

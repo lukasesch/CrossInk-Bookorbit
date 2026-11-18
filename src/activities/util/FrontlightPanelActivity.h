@@ -168,6 +168,8 @@ class FrontlightPanelActivity final : public Activity {
   HeapByteBuffer sheetBackdrop;
   bool sheetBackdropSaved = false;
   int sheetPaintedBottom = 0;
+  // Payload of the QR pane, read from the reader when the pane opens.
+  std::string sheetQrText;
 
   void sheetEnter();
   void sheetExit();
@@ -179,6 +181,7 @@ class FrontlightPanelActivity final : public Activity {
   void sheetDrawBlocks();
   void sheetDrawGoTo();
   void sheetDrawAutoTurn();
+  void sheetDrawQr();
   void sheetDrawLight(const PiccoSheet::LightRow& row, int index);
   void sheetSetPane(PiccoSheet::Pane pane);
   void sheetActivate(const SheetTarget& target);
@@ -226,6 +229,7 @@ class FrontlightPanelActivity final : public Activity {
     sheetSetPane(pane);
     sheetTab = tab;
   }
+  void simulatorActivateSheetRow(const PiccoSheet::Row row) { sheetActivateRow(row); }
 #endif
 #ifdef SIMULATOR
   freeink::ui::Rect simulatorQuickActionRect(int index) const;

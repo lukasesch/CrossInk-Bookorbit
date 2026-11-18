@@ -35,6 +35,7 @@
 #include "components/picco/home/PiccoHomeStops.h"
 #include "components/picco/sheet/PiccoSheetDraw.h"
 #include "components/picco/sheet/ReaderSheetDetails.h"
+#include "util/QrUtils.h"
 #include "fontIds.h"
 #include "util/ImageDisplayMode.h"
 #include "util/SlideSwitch.h"
@@ -217,6 +218,8 @@ const char* paneTitle(const Pane pane) {
       return tr(STR_SYSTEM_ADVANCED);
     case Pane::FontRendering:
       return tr(STR_TTF_RENDERING);
+    case Pane::Qr:
+      return tr(STR_PICCO_QR_TITLE);
     case Pane::Main:
     case Pane::Count:
       break;
@@ -299,6 +302,7 @@ void FrontlightPanelActivity::sheetExit() {
     sheetSettings.reset();
   }
   sheetBackdrop.reset();
+  sheetQrText = std::string();
 }
 
 void FrontlightPanelActivity::sheetFinish(const ReaderSheetRequest& request, const FrontlightPanelAction action) {
@@ -388,6 +392,9 @@ int FrontlightPanelActivity::sheetHeight() const {
     case Pane::AutoPageTurn:
       bottom = autoTurnLayout(w).bottom;
       break;
+    case Pane::Qr:
+      bottom = qrLayout(w).bottom;
+      break;
     default:
       bottom = blockPaneBottom(sheetPane, sheetAvailability(), w);
       break;
@@ -417,9 +424,18 @@ void FrontlightPanelActivity::sheetSetPane(const Pane pane) {
       if (sheetSettings) sheetSettings->beginTtfRenderingEdit();
       break;
 #endif
+    case Pane::Qr:
+      // A page without words (an image page) has nothing to encode: stay on More.
+      sheetQrText = d && d->pageText ? d->pageText(d->pageTextContext) : std::string();
+      if (sheetQrText.empty()) {
+        LOG_ERR("SHEET", "No page text for the QR pane");
+        sheetPane = Pane::More;
+      }
+      break;
     default:
       break;
   }
+  if (pane != Pane::Qr) sheetQrText = std::string();
   requestUpdate();
 }
 
@@ -780,6 +796,9 @@ void FrontlightPanelActivity::sheetDraw() {
     case Pane::AutoPageTurn:
       sheetDrawAutoTurn();
       break;
+    case Pane::Qr:
+      sheetDrawQr();
+      break;
     default:
       sheetDrawBlocks();
       break;
@@ -926,6 +945,31 @@ void FrontlightPanelActivity::sheetDrawMain() {
     sheetAddTarget(box, SheetHit::Tile, static_cast<uint8_t>(tile), 0,
                    sheetAddStop(box, PiccoTokens::kSmallRadius, false));
   }
+}
+
+// Page as QR (T_QrPage): the page's words as a code, which page, which book.
+void FrontlightPanelActivity::sheetDrawQr() {
+  const QrLayout q = qrLayout(renderer.getScreenWidth());
+  renderer.drawRoundedRect(q.frame.x, q.frame.y, q.frame.width, q.frame.height, PiccoTokens::kHairline,
+                           PiccoTokens::kSmallRadius, true);
+  QrUtils::drawQrCode(renderer, toRect(q.code), sheetQrText);
+  const ReaderSheetDetails* d = context.readerSheet.get();
+  char caption[96];
+  if (d && d->stablePageCount > 0) {
+    std::snprintf(caption, sizeof(caption), tr(STR_PICCO_QR_SCAN_PAGE_FORMAT), static_cast<unsigned>(d->stablePage));
+  } else {
+    std::snprintf(caption, sizeof(caption), "%s", tr(STR_PICCO_QR_SCAN));
+  }
+  D::text(renderer, UI_10_FONT_ID, q.caption, caption, EpdFontFamily::REGULAR, D::Align::Center);
+  const auto& details = context.bookDetails;
+  const char* title = !details.title.empty() ? details.title.c_str() : context.bookTitle.c_str();
+  char line[160];
+  if (!details.chapter.empty()) {
+    std::snprintf(line, sizeof(line), "%s \xC2\xB7 %s", title, details.chapter.c_str());
+  } else {
+    std::snprintf(line, sizeof(line), "%s", title);
+  }
+  D::text(renderer, SMALL_FONT_ID, q.detail, line, EpdFontFamily::REGULAR, D::Align::Center);
 }
 
 void FrontlightPanelActivity::sheetDrawBlocks() {
@@ -1445,9 +1489,15 @@ void FrontlightPanelActivity::sheetActivateRow(const Row row) {
     case Row::SendBook:
       request(A::SEND_NEARBY_BOOK);
       return;
-    case Row::Qr:
-      request(A::DISPLAY_QR);
+    case Row::Qr: {
+      const ReaderSheetDetails* d = context.readerSheet.get();
+      if (d && d->pageText) {
+        sheetSetPane(Pane::Qr);
+      } else {
+        request(A::DISPLAY_QR);
+      }
       return;
+    }
     case Row::KOReaderSync:
       request(A::SYNC);
       return;

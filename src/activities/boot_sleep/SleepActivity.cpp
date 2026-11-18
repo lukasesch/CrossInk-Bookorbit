@@ -39,6 +39,7 @@
 #include "SleepCoverAssets.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
+#include "components/picco/PiccoSleepScreen.h"
 #include "components/themes/dashboard/DashboardTheme.h"
 #include "components/themes/minimal/MinimalTheme.h"
 #include "fontIds.h"
@@ -1101,6 +1102,17 @@ void SleepActivity::renderMinimalSleepScreen() const {
     book.coverBmpPath = SleepCoverAssets::cachedMinimalCoverPathFor(path, renderer);
   }
 
+#if CROSSINK_APP_PICCO_UI
+  // Picco draws this mode as its own cover screen (board T_Sleep), white unless the cover
+  // filter asks for the inverted look.
+  if (UITheme::isPicco()) {
+    const std::string chapter = loadChapterTitleForPath(path);
+    PiccoSleepScreen::draw(renderer, book, chapter.c_str(), RecentBookProgress::loadPercent(book));
+    if (sleepCoverFilterInvertsGeneratedScreen()) renderer.invertScreen();
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH, TURN_OFF_SCREEN_AFTER_SLEEP_REFRESH);
+    return;
+  }
+#endif
   const BookReadingStats bookStats = loadBookStatsForPath(path);
   const float progressPercent = RecentBookProgress::loadPercent(book);
   MinimalTheme theme;

@@ -10,10 +10,15 @@
 #include <string>
 #include <vector>
 
+#include "AppCapabilities.h"
 #include "WordRef.h"
 #include "activities/Activity.h"
 #include "clippings/ClippingHighlightGeometry.h"
 #include "util/ButtonNavigator.h"
+
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoReaderOverlays.h"
+#endif
 
 struct ClipWordStyle {
   enum Flags : uint8_t {
@@ -89,6 +94,14 @@ class ClipSelectionActivity final : public Activity {
   void restoreSavedBuffer() const;
   bool switchToPage(int pageIdx);
   void drawHighlights();
+  bool piccoToolbarShown() const;
+  bool piccoToolbarContains(int x, int y) const;
+  bool handlePiccoToolbarTap(int x, int y);
+  void drawPiccoToolbar() const;
+#if CROSSINK_APP_PICCO_UI
+  PiccoOverlay::ClipToolbar piccoToolbar() const;
+  void drawPiccoHighlights();
+#endif
   ClippingHighlightGeometry::WordRect wordHighlightRect(const WordRef& word) const;
   void applyHighlightStyle(const ClippingHighlightGeometry::WordRect& rect, const ClipWordStyle& style) const;
   void useFallbackFont(const char* reason);

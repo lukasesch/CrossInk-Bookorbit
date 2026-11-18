@@ -5,8 +5,13 @@
 #include <array>
 #include <memory>
 
+#include "AppCapabilities.h"
 #include "FootnoteLinkTargets.h"
 #include "activities/Activity.h"
+
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoReaderOverlays.h"
+#endif
 
 // Select a footnote reference on the page itself. The page is owned by this
 // activity so the source reader can remain paused until a jump or cancellation.
@@ -36,6 +41,10 @@ class EpubReaderFootnoteSelectActivity final : public Activity {
   void performJump();
   bool drawHighlightWithSnapshot();
   void drawChrome() const;
+#if CROSSINK_APP_PICCO_UI
+  PiccoOverlay::NotePopover piccoPopover() const;
+  void drawPiccoSelection() const;
+#endif
 
   std::unique_ptr<Page> page;
   FootnoteLinkTargets targets;

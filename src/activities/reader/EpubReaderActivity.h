@@ -698,6 +698,7 @@ class EpubReaderActivity final : public Activity {
 #if CROSSINK_APP_PICCO_UI
   bool fillReaderSheetDetails(ReaderSheetDetails& details) override;
 #endif
+  std::string currentPageText();
   bool handleExternalReaderMenuAction(uint8_t action) override;
   bool restorePendingOverlay(const PendingOverlayResume& resume) override;
   void setAutoPageTurnIntervalSeconds(uint16_t seconds);

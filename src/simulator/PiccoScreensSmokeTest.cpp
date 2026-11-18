@@ -19,6 +19,7 @@
 #include "CrossPointSettings.h"
 #include "PiccoScreens3B.h"
 #include "PiccoScreens4B.h"
+#include "PiccoScreens4R2.h"
 #include "activities/ActivityManager.h"
 #include "activities/boot_sleep/SleepActivity.h"
 #include "activities/home/HomeActivity.h"
@@ -364,6 +365,9 @@ struct PiccoScreensSmokeTest {
     });
 
     addPiccoScreens4B(steps, [this](const std::string& name) { renderAndCapture(name); });
+    addPiccoScreens4R2(
+        steps, [this](const std::string& name) { renderAndCapture(name); },
+        [this](const std::string& name) { capture(name); }, bookPath);
 
     // Without an account the catalog shows its setup hint and makes no request.
     steps.push_back([] {
