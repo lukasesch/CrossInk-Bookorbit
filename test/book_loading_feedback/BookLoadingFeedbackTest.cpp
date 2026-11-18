@@ -47,4 +47,18 @@ int main() {
   assert(renderer.clears == 4);
   renderer.available = true;
   assert(!feedback.showIfPending(renderer));
+
+  // Progress: the popup has no bar, so nothing is drawn or refreshed.
+  feedback.showIndexing(renderer);
+  const int draws = GUI.draws;
+  feedback.showProgress(renderer, 50);
+  assert(GUI.draws == draws);
+
+  // Progress repaints are throttled to PROGRESS_STEP points and skip 100.
+  assert(BookLoadingFeedback::progressDue(-1, 0));
+  assert(!BookLoadingFeedback::progressDue(0, 9));
+  assert(BookLoadingFeedback::progressDue(0, 10));
+  assert(BookLoadingFeedback::progressDue(10, 25));
+  assert(!BookLoadingFeedback::progressDue(25, 20));
+  assert(!BookLoadingFeedback::progressDue(80, 100));
 }

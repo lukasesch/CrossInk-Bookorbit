@@ -21,6 +21,7 @@
 #include "PiccoScreens4B.h"
 #include "PiccoScreens4R1.h"
 #include "PiccoScreens4R2.h"
+#include "PiccoScreensLoading.h"
 #include "activities/ActivityManager.h"
 #include "activities/boot_sleep/SleepActivity.h"
 #include "activities/home/HomeActivity.h"
@@ -397,6 +398,8 @@ struct PiccoScreensSmokeTest {
       BOOKORBIT_STORE.clearCredentials();
       return 0;
     });
+
+    addPiccoScreensLoading(steps, bookPath, [this](const std::string& name) { capture(name); });
 
     // The sleep screen draws in onEnter; a detached instance keeps the app awake.
     steps.push_back([this] {

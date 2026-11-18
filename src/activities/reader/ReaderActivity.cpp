@@ -190,6 +190,7 @@ void ReaderActivity::onEnter() {
     return;
   }
 
+  openingFeedback.setBook(initialBookPath);
   // Quick Resume already shows the book page. A loading notice would blank it.
   if (!keepWakeFrame) openingFeedback.start();
 

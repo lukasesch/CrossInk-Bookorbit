@@ -27,6 +27,10 @@
 #include "../reader/EpubReaderUtils.h"
 #include "BookOrbitCredentialStore.h"
 #include "BookOrbitDownloadIndex.h"
+#if CROSSINK_APP_PICCO_UI
+#include "components/picco/PiccoLoadingLayout.h"
+#include "components/picco/PiccoLoadingScreen.h"
+#endif
 #include "BookOrbitHomeStore.h"
 #include "BookmarkStore.h"
 #include "ClippingStore.h"
@@ -1438,14 +1442,16 @@ void HomeActivity::activatePiccoAction(const PiccoHomeUi::Action action) {
   }
 }
 
-// The hero's cover at exactly its slot size, generated once per book like the BookOrbit Home's.
+// The hero's cover at exactly its slot size, generated once per book like the BookOrbit Home's,
+// and the loading screen's larger one beside it.
 void HomeActivity::loadPiccoCover() {
   recentsLoaded = true;
   if (recentBooks.empty()) return;
   RecentBook& book = recentBooks.front();
   if (book.coverState == RecentBook::CoverState::Missing || !Storage.exists(book.path.c_str())) return;
   const std::string path = PiccoHomeUi::coverPath(book);
-  if (path.empty() || Storage.exists(path.c_str())) return;
+  const std::string loadingPath = PiccoLoadingScreen::coverPath(book);
+  if (path.empty() || (Storage.exists(path.c_str()) && Storage.exists(loadingPath.c_str()))) return;
 
   recentsLoading = true;
   const Rect popupRect = GUI.drawPopup(renderer, tr(STR_LOADING));
@@ -1454,16 +1460,19 @@ void HomeActivity::loadPiccoCover() {
     Epub epub(book.path, "/.crosspoint");
     if (!epub.load(true, true, Epub::XLocationLoadMode::Skip)) {
       LOG_ERR("HOME", "Cannot load EPUB cache for thumbnail: %s", book.path.c_str());
-    } else if (!epub.generateAdaptiveThumbBmp(PiccoHomeUi::kCoverWidth, PiccoHomeUi::kCoverHeight, &renderer,
-                                              SETTINGS.getReaderFontId()) &&
-               !epub.hasCoverImage()) {
+    } else if (epub.generateAdaptiveThumbBmp(PiccoHomeUi::kCoverWidth, PiccoHomeUi::kCoverHeight, &renderer,
+                                             SETTINGS.getReaderFontId())) {
+      epub.generateAdaptiveThumbBmp(PiccoLoadingLayout::kCoverW, PiccoLoadingLayout::kCoverH, &renderer,
+                                    SETTINGS.getReaderFontId());
+    } else if (!epub.hasCoverImage()) {
       markCoverMissing(book);
     }
   } else if (FsHelpers::hasXtcExtension(book.path)) {
     Xtc xtc(book.path, "/.crosspoint");
-    if (xtc.load()) {
-      xtc.generateThumbBmp(static_cast<uint16_t>(PiccoHomeUi::kCoverWidth),
-                           static_cast<uint16_t>(PiccoHomeUi::kCoverHeight));
+    if (xtc.load() && xtc.generateThumbBmp(static_cast<uint16_t>(PiccoHomeUi::kCoverWidth),
+                                           static_cast<uint16_t>(PiccoHomeUi::kCoverHeight))) {
+      xtc.generateThumbBmp(static_cast<uint16_t>(PiccoLoadingLayout::kCoverW),
+                           static_cast<uint16_t>(PiccoLoadingLayout::kCoverH));
     }
   }
   recentsLoading = false;

@@ -734,6 +734,7 @@ void TxtReaderActivity::buildPageIndex() {
     if (offset < fileSize) {
       pageOffsets.push_back(offset);
     }
+    openingFeedback.showProgress(renderer, static_cast<int>(100.0 * offset / fileSize));
 
     // Yield to other tasks periodically
     if (pageOffsets.size() % 20 == 0) {

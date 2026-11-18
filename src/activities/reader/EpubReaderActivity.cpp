@@ -7262,6 +7262,11 @@ void EpubReaderActivity::render(RenderLock&& lock) {
                   buildFailed = true;
                   break;
                 }
+                // Only a plain page target has a known end; the indexing notice must be up.
+                if (!buildPopupPending && !anchorJump && !pendingRelayoutReposition && target > 0 &&
+                    target < std::numeric_limits<uint16_t>::max()) {
+                  openingFeedback.showProgress(renderer, static_cast<int>(section->pageCount) * 100 / (target + 1));
+                }
               }
               if (!buildFailed && pendingRelayoutReposition && section->isBuilding() && isRelayoutCatchUpComplete()) {
                 LOG_DBG("ERS", "Incremental relayout reached reading position: pages=%u target=%d", section->pageCount,
